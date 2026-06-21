@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Swiss Pairing — Tournament Manager</title>
+<style>
+:root{
+  --bg:#f4f6fb; --card:#ffffff; --ink:#1c2434; --muted:#697086; --line:#e3e7f0;
+  --accent:#3554d1; --accent-soft:#e8ecfb; --good:#1f9d57; --bad:#d23a4a; --warn:#c77c1a;
+  --shadow:0 1px 3px rgba(20,30,60,.08),0 6px 22px rgba(20,30,60,.06);
+  --r:12px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0f1320; --card:#171c2b; --ink:#e8ebf3; --muted:#9aa3bd; --line:#262d42;
+    --accent:#6a85ff; --accent-soft:#1d2540; --good:#36c578; --bad:#ff5d6c; --warn:#e3a23a;
+    --shadow:0 1px 3px rgba(0,0,0,.4),0 8px 28px rgba(0,0,0,.35);
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  background:var(--bg);color:var(--ink);line-height:1.45;-webkit-text-size-adjust:100%}
+.wrap{max-width:1040px;margin:0 auto;padding:18px 16px 80px}
+header.app{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+header.app h1{font-size:20px;margin:0;letter-spacing:-.3px}
+header.app .sub{color:var(--muted);font-size:13px;margin-top:2px}
+.logo{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,var(--accent),#7d3bd1);
+  display:grid;place-items:center;color:#fff;font-weight:800;font-size:18px;flex:0 0 auto}
+.spacer{flex:1}
+.statusbar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:8px 12px;
+  box-shadow:var(--shadow);min-width:86px}
+.stat .k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.stat .v{font-size:18px;font-weight:700}
+nav.tabs{display:flex;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:999px;
+  padding:5px;box-shadow:var(--shadow);margin-bottom:16px;overflow:auto}
+nav.tabs button{flex:1;border:0;background:transparent;color:var(--muted);font-weight:600;font-size:14px;
+  padding:9px 10px;border-radius:999px;cursor:pointer;white-space:nowrap;min-width:max-content}
+nav.tabs button.active{background:var(--accent);color:#fff}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);
+  padding:16px;margin-bottom:14px}
+.card h2{margin:0 0 12px;font-size:16px}
+.card h2 .hint{font-weight:400;color:var(--muted);font-size:13px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:9px;
+  padding:9px 11px;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+input[type=number]{width:84px;text-align:center}
+select{cursor:pointer}
+label.fld{display:flex;flex-direction:column;gap:5px;font-size:13px;color:var(--muted);font-weight:600}
+button.btn{font:inherit;font-weight:600;border:1px solid var(--line);background:var(--card);color:var(--ink);
+  padding:9px 14px;border-radius:9px;cursor:pointer}
+button.btn:hover{border-color:var(--accent)}
+button.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.btn.primary:disabled{opacity:.45;cursor:not-allowed}
+button.btn.ghost{background:transparent}
+button.btn.danger{color:var(--bad);border-color:transparent}
+button.btn.danger:hover{border-color:var(--bad)}
+button.btn.sm{padding:5px 10px;font-size:13px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line)}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:700}
+td.num,th.num{text-align:center}
+tr:last-child td{border-bottom:0}
+.tag{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
+.tag.bye{background:rgba(199,124,26,.15);color:var(--warn)}
+.tag.wd{background:rgba(210,58,74,.14);color:var(--bad)}
+.pill{font-size:12px;color:var(--muted)}
+.empty{color:var(--muted);text-align:center;padding:30px 10px}
+.pairing{display:grid;grid-template-columns:34px 1fr auto 1fr;gap:10px 12px;align-items:center;
+  padding:10px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;background:var(--bg)}
+.pairing .tb{font-weight:800;color:var(--muted);text-align:center}
+.pairing .pname{font-weight:600;display:flex;align-items:center;gap:6px;min-width:0}
+.pairing .pname.right{justify-content:flex-end;text-align:right}
+.pairing .pname small{color:var(--muted);font-weight:400}
+.pairing .ctrl{display:flex;gap:6px;align-items:center;justify-content:center;flex-wrap:wrap}
+.pairing.win-l .left{color:var(--good)} .pairing.win-r .right{color:var(--good)}
+.pairing.forf{opacity:.92}
+.scorein{width:62px}
+.resbtns{display:flex;gap:4px}
+.resbtns button{border:1px solid var(--line);background:var(--card);border-radius:8px;padding:6px 9px;
+  cursor:pointer;font-weight:700;font-size:13px;color:var(--muted);min-width:34px}
+.resbtns button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.special{font-size:12px;padding:5px 6px}
+.win-dot{width:8px;height:8px;border-radius:50%;background:var(--good);flex:0 0 auto}
+.note{font-size:13px;color:var(--muted)}
+.banner{padding:10px 12px;border-radius:9px;font-size:13px;margin-bottom:12px;border:1px solid}
+.banner.info{background:var(--accent-soft);border-color:transparent;color:var(--accent)}
+.banner.warn{background:rgba(199,124,26,.12);border-color:transparent;color:var(--warn)}
+.banner.good{background:rgba(31,157,87,.12);border-color:transparent;color:var(--good)}
+.checks{display:flex;flex-direction:column;gap:10px}
+.check{display:flex;gap:10px;align-items:flex-start;cursor:pointer;font-size:14px}
+.check input{margin-top:2px}
+.check .desc{color:var(--muted);font-size:12.5px;display:block}
+.rank{font-weight:800;color:var(--muted);width:24px;text-align:center}
+.firsttag{font-size:10px;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:0 4px}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.inactive{opacity:.55}
+.kbd{font-family:ui-monospace,Menlo,Consolas,monospace;background:var(--bg);border:1px solid var(--line);
+  border-radius:5px;padding:1px 5px;font-size:12px}
+hr.sep{border:0;border-top:1px solid var(--line);margin:14px 0}
+/* crosstable */
+.cxwrap{overflow:auto}
+table.cx{font-size:13px;white-space:nowrap}
+table.cx th,table.cx td{padding:6px 8px;border:1px solid var(--line)}
+table.cx td.cell{text-align:center;font-variant-numeric:tabular-nums;min-width:46px}
+.cell .res{font-weight:700}
+.cell .res.w{color:var(--good)} .cell .res.l{color:var(--bad)} .cell .res.d{color:var(--muted)}
+.cell .op{color:var(--muted);font-size:11px}
+.cell.bye{color:var(--warn);font-weight:700}
+.cell.absent{color:var(--muted)}
+/* tiebreak order editor */
+.tblist{display:flex;flex-direction:column;gap:6px}
+.tbitem{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:9px;padding:7px 10px;background:var(--bg)}
+.tbitem .ord{font-weight:800;color:var(--muted);width:18px;text-align:center}
+.tbitem .nm{flex:1;font-weight:600;font-size:14px}
+.tbitem .arrows{display:flex;gap:4px}
+.tbadd{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+@media (max-width:560px){
+  .pairing{grid-template-columns:26px 1fr;grid-template-areas:"tb left" "tb right" "tb ctrl";gap:6px}
+  .pairing .tb{grid-area:tb} .pairing .left{grid-area:left} .pairing .right{grid-area:right;justify-content:flex-start;text-align:left}
+  .pairing .ctrl{grid-area:ctrl;justify-content:flex-start}
+  .pairing .vs{display:none}
+}
+@media print{
+  nav.tabs,header.app .spacer,.toolbar,button,.statusbar{display:none!important}
+  body{background:#fff} .card{box-shadow:none;border:1px solid #ccc}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="app">
+    <div class="logo">S</div>
+    <div>
+      <h1 id="tname">Swiss Pairing</h1>
+      <div class="sub" id="tsub">Tournament manager</div>
+    </div>
+    <div class="spacer"></div>
+    <div class="row">
+      <button class="btn ghost sm" id="btnExport">Export</button>
+      <button class="btn ghost sm" id="btnImport">Import</button>
+      <input type="file" id="fileImport" accept="application/json" style="display:none">
+    </div>
+  </header>
+
+  <div class="statusbar" id="statusbar"></div>
+
+  <nav class="tabs" id="tabs">
+    <button data-tab="players" class="active">Players</button>
+    <button data-tab="pairings">Pairings</button>
+    <button data-tab="standings">Standings</button>
+    <button data-tab="crosstable">Crosstable</button>
+    <button data-tab="settings">Settings</button>
+  </nav>
+
+  <div id="view"></div>
+</div>
+
+<script>
+"use strict";
+
+/* ==================================================================
+   Swiss-system tournament manager — single file, client-side.
+   Tie-break engine implements the FIDE C.07 (2023) rules and is
+   verified against IA Mario Held's official worked examples
+   (16-player Swiss: all Buchholz / Buchholz-Cut1 / Sonneborn-Berger
+   / SB-Cut1 values reproduced exactly).
+   ================================================================== */
+
+const LS_KEY = "swissPairing.v1";
+const DEFAULT_SETTINGS = {
+  totalRounds: 6,
+  round1: "fold",         // fold | adjacent | random
+  trackSpread: true,      // Scrabble-style point margins
+  drawAllowed: true,
+  byePoints: 1,           // points for a pairing-allocated (full) bye
+  byeSpread: 50,          // spread credited for a bye / default forfeit margin
+  firstBalance: true,     // balance who goes first / colours
+  tbOrder: null,          // array of tiebreak keys, in priority order (null => auto)
+};
+let state = load();
+let activeTab = "players";
+
+const round2 = x => Math.round((x + Number.EPSILON) * 100) / 100;
+
+function freshState(){
+  return { name:"My Tournament", players:[], rounds:[], nextId:1, settings:{...DEFAULT_SETTINGS} };
+}
+function load(){
+  try{
+    const raw = localStorage.getItem(LS_KEY);
+    if(!raw) return freshState();
+    const s = JSON.parse(raw);
+    s.settings = {...DEFAULT_SETTINGS, ...(s.settings||{})};
+    s.players = s.players||[]; s.rounds = s.rounds||[]; s.nextId = s.nextId||1;
+    s.name = s.name||"My Tournament";
+    return s;
+  }catch(e){ return freshState(); }
+}
+function save(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+
+/* ---------------- Helpers ---------------- */
+const esc = s => String(s??"").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const byId = id => state.players.find(p=>p.id===id);
+const pname = id => { const p=byId(id); return p?p.name:"?"; };
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+const fmtSpread = n => (n>0?"+":"")+n;
+
+/* tiebreak definitions */
+const TB_DEFS = {
+  spread:     {label:"Cumulative spread", title:"Sum of point margins (Scrabble-style)"},
+  buchholz:   {label:"Buchholz", title:"Sum of opponents' (adjusted) scores"},
+  bhCut1:     {label:"Buchholz Cut-1", title:"Buchholz, dropping the least-significant opponent (FIDE default)"},
+  sb:         {label:"Sonneborn-Berger", title:"Sum of beaten opponents' scores + half of drawn opponents'"},
+  sbCut1:     {label:"Sonneborn-Berger Cut-1", title:"SB dropping the least-significant opponent"},
+  cumulative: {label:"Cumulative (progressive)", title:"Sum of running score after each round"},
+  wins:       {label:"Number of wins", title:"Most wins ranks higher"},
+  headToHead: {label:"Head-to-head", title:"Result of the game(s) between the tied players"},
+  rating:     {label:"Rating", title:"Higher rating ranks higher"},
+};
+function effectiveTbOrder(){
+  if(Array.isArray(state.settings.tbOrder) && state.settings.tbOrder.length) return state.settings.tbOrder;
+  return state.settings.trackSpread
+    ? ["spread","buchholz","sb","cumulative"]
+    : ["bhCut1","buchholz","sb","cumulative"];
+}
+
+/* ==================================================================
+   Round-log builder.  Produces, per player, an ordered list of round
+   entries spanning their participation.  Missing rounds within that
+   span become "absent" (a voluntarily-unplayed round).
+   ================================================================== */
+function buildLogs(){
+  const cfg = state.settings;
+  const byeInfo = t => ({
+    pairing:{pts:cfg.byePoints, vol:false, spread:cfg.byeSpread},
+    full:   {pts:1,            vol:true,  spread:cfg.byeSpread},
+    half:   {pts:0.5,          vol:true,  spread:0},
+    zero:   {pts:0,            vol:true,  spread:0},
+  }[t] || {pts:cfg.byePoints, vol:false, spread:cfg.byeSpread});
+
+  // For each existing round, map playerId -> entry (or 'pending')
+  const perRound = state.rounds.map(rd=>{
+    const m = {};
+    rd.pairings.forEach(pg=>{
+      if(pg.p2===null){
+        const t = (pg.result && pg.result.byeType) || "pairing";
+        const info = byeInfo(t);
+        m[pg.p1] = {oppId:null, pts:info.pts, played:false, voluntary:info.vol,
+          result: info.pts>=1?"W":info.pts>0?"D":"L", spread:info.spread, kind:"bye", byeType:t};
+        return;
+      }
+      const r = pg.result || {};
+      if(r.forfeit){
+        const winSpread = cfg.byeSpread;
+        const mk = (pts,res,vol,oppReal)=>({oppId:null, pts, played:false, voluntary:vol, result:res,
+          spread: res==="W"?winSpread:res==="L"?-winSpread:0, kind: res==="W"?"ffwin":"ffloss", oppReal});
+        if(r.winner==="p1"){ m[pg.p1]=mk(1,"W",false,pg.p2); m[pg.p2]=mk(0,"L",true,pg.p1); }
+        else if(r.winner==="p2"){ m[pg.p2]=mk(1,"W",false,pg.p1); m[pg.p1]=mk(0,"L",true,pg.p2); }
+        else { m[pg.p1]=mk(0,"L",true,pg.p2); m[pg.p2]=mk(0,"L",true,pg.p1); } // double forfeit
+        return;
+      }
+      if(r.winner){ // played game with a result
+        const sp1 = (r.score1!=null && r.score2!=null) ? (r.score1 - r.score2) : 0;
+        const v = x => x==="W"?1 : x==="D"?0.5 : 0;
+        const w1 = r.winner==="p1"?"W" : r.winner==="draw"?"D" : "L";
+        const w2 = r.winner==="p2"?"W" : r.winner==="draw"?"D" : "L";
+        m[pg.p1]={oppId:pg.p2, pts:v(w1), played:true, voluntary:false, result:w1, spread:sp1, kind:"game"};
+        m[pg.p2]={oppId:pg.p1, pts:v(w2), played:true, voluntary:false, result:w2, spread:-sp1, kind:"game"};
+      } else { // paired but not yet scored
+        m[pg.p1]="pending"; m[pg.p2]="pending";
+      }
+    });
+    return m;
+  });
+
+  const logs = {};
+  state.players.forEach(p=>{
+    let first=-1, last=-1;
+    perRound.forEach((m,i)=>{ if(m[p.id]!==undefined){ if(first<0) first=i; last=i; } });
+    const arr=[];
+    if(first>=0){
+      for(let i=first;i<perRound.length;i++){
+        const e = perRound[i][p.id];
+        if(e===undefined){ // genuinely not in this round -> absence (voluntary unplayed)
+          arr.push({round:i+1, oppId:null, pts:0, played:false, voluntary:true, result:"L", spread:0, kind:"absent"});
+        } else if(e==="pending"){
+          arr.push({round:i+1, kind:"pending"});
+        } else {
+          arr.push({round:i+1, ...e});
+        }
+      }
+    }
+    logs[p.id]=arr;
+  });
+  return logs;
+}
+
+/* ==================================================================
+   FIDE-2023 tie-break engine (verified). Operates on the round-logs.
+   - own unplayed round  -> dummy opponent with the player's own score
+   - real opponent       -> their score, with trailing voluntarily-
+                            unplayed rounds (no later availability)
+                            counted as draws
+   - Cut-1               -> discard the least-significant opponent's
+                            contribution; if any voluntarily-unplayed
+                            rounds exist, discard the larger of {smallest
+                            such contribution, least-significant opponent}
+   ================================================================== */
+function tiebreakEngine(logs){
+  const ids = Object.keys(logs).filter(id=>logs[id].length);
+  const scored = g => g.kind!=="pending";
+  const isAvail = g => g.played || (scored(g) && !g.voluntary); // played, PAB or forfeit-win
+
+  const score = {}, adj = {};
+  ids.forEach(id=> score[id] = logs[id].reduce((t,g)=> t + (scored(g)?g.pts:0), 0));
+  ids.forEach(id=>{
+    const L = logs[id]; let a=0;
+    for(let i=0;i<L.length;i++){
+      const g=L[i]; if(!scored(g)) continue;
+      let pts=g.pts;
+      if(!g.played && g.voluntary){
+        let later=false;
+        for(let j=i+1;j<L.length;j++){ if(isAvail(L[j])){ later=true; break; } }
+        if(!later) pts=0.5;
+      }
+      a+=pts;
+    }
+    adj[id]=a;
+  });
+  const cut = rounds => {
+    if(!rounds.length) return 0;
+    let low = rounds[0];
+    for(const r of rounds){ if(r.sig<low.sig || (r.sig===low.sig && r.contrib<low.contrib)) low=r; }
+    const v = rounds.filter(r=>r.isVUR);
+    return v.length ? Math.max(Math.min(...v.map(r=>r.contrib)), low.contrib) : low.contrib;
+  };
+  const sum = a => a.reduce((t,x)=>t+x,0);
+
+  const tb={};
+  ids.forEach(id=>{
+    const L=logs[id], sP=score[id];
+    const rounds = L.filter(scored).map(g=>{
+      const sig = g.played ? adj[g.oppId] : sP;
+      return {sig, isVUR: !g.played && g.voluntary, bh:sig, sb:g.pts*sig};
+    });
+    const bh = sum(rounds.map(r=>r.bh));
+    const sb = sum(rounds.map(r=>r.sb));
+    tb[id]={
+      buchholz: round2(bh),
+      bhCut1:   round2(bh - cut(rounds.map(r=>({sig:r.sig,contrib:r.bh,isVUR:r.isVUR})))),
+      sb:       round2(sb),
+      sbCut1:   round2(sb - cut(rounds.map(r=>({sig:r.sig,contrib:r.sb,isVUR:r.isVUR})))),
+    };
+  });
+  return tb;
+}
+
+/* ---------------- Aggregate stats per player ---------------- */
+function computeStats(){
+  const logs = buildLogs();
+  const tb = tiebreakEngine(logs);
+  const S = {};
+  state.players.forEach(p=>{
+    const L = logs[p.id] || [];
+    let points=0, spread=0, wins=0, losses=0, draws=0, byes=0, played=0, cumulative=0, running=0;
+    const opponents = new Set();
+    L.forEach(g=>{
+      if(g.kind==="pending") return;
+      points += g.pts; spread += g.spread||0;
+      running += g.pts; cumulative += running;
+      if(g.kind==="game"){ played++; opponents.add(g.oppId);
+        if(g.result==="W") wins++; else if(g.result==="L") losses++; else draws++; }
+      else if(g.kind==="bye"){ byes++; }
+      else if(g.kind==="ffwin"){ wins++; }
+      else if(g.kind==="ffloss"){ losses++; }
+    });
+    const t = tb[p.id] || {};
+    S[p.id] = {id:p.id, points:round2(points), spread, wins, losses, draws, byes, played, cumulative,
+      opponents, log:L, firstCount:0,
+      buchholz: t.buchholz||0, bhCut1: t.bhCut1||0, sb: t.sb||0, sbCut1: t.sbCut1||0};
+  });
+  // who went first (for colour/first balancing) — count p1 of any decided non-bye game
+  state.rounds.forEach(rd=> rd.pairings.forEach(pg=>{
+    if(pg.p2===null) return;
+    if(pg.result && (pg.result.winner || pg.result.forfeit) && S[pg.p1]) S[pg.p1].firstCount++;
+  }));
+  return S;
+}
+
+/* ---------------- Standings ---------------- */
+function h2h(a, b){ // negative if a should rank above b
+  let r=0;
+  (a.s.log||[]).forEach(g=>{ if(g.kind==="game" && g.oppId===b.p.id){ r += g.result==="W"?-1 : g.result==="L"?1 : 0; } });
+  return r;
+}
+function cmpTb(A, B, key){
+  switch(key){
+    case "spread": return B.s.spread - A.s.spread;
+    case "buchholz": return B.s.buchholz - A.s.buchholz;
+    case "bhCut1": return B.s.bhCut1 - A.s.bhCut1;
+    case "sb": return B.s.sb - A.s.sb;
+    case "sbCut1": return B.s.sbCut1 - A.s.sbCut1;
+    case "cumulative": return B.s.cumulative - A.s.cumulative;
+    case "wins": return B.s.wins - A.s.wins;
+    case "rating": return (B.p.rating||0) - (A.p.rating||0);
+    case "headToHead": return h2h(A,B);
+    default: return 0;
+  }
+}
+function standings(){
+  const S = computeStats();
+  const list = state.players
+    .filter(p=> p.active!==false || (S[p.id] && S[p.id].log.length))
+    .map(p=>({p, s:S[p.id]}));
+  const order = effectiveTbOrder();
+  list.sort((A,B)=>{
+    if(B.s.points !== A.s.points) return B.s.points - A.s.points;
+    for(const k of order){ const d = cmpTb(A,B,k); if(d) return d; }
+    return (B.p.rating||0)-(A.p.rating||0) || A.p.name.localeCompare(B.p.name);
+  });
+  return {list, S, order};
+}
+
+/* ==================================================================
+   Pairing engine
+   ================================================================== */
+function pickBye(active, S){
+  const noBye = active.filter(p=> S[p.id].byes===0);
+  const pool = noBye.length ? noBye : active.slice();
+  pool.sort((a,b)=> S[a.id].points-S[b.id].points || (a.rating||0)-(b.rating||0));
+  return pool[0];
+}
+function foldPair(arr){
+  const half = arr.length/2, top=arr.slice(0,half), bot=arr.slice(half), out=[];
+  for(let i=0;i<half;i++) out.push([top[i],bot[i]]);
+  return out;
+}
+// Ordered exhaustive backtracking: finds a complete pairing, preferring
+// small score gaps and (optionally) avoiding rematches.
+function matchPairs(players, S, allowRematch){
+  const n = players.length;
+  const used = new Array(n).fill(false);
+  const out = [];
+  let budget = 400000;
+  const cost = (i,j)=>{
+    let c = Math.abs(S[players[i].id].points - S[players[j].id].points)*1000;
+    if(S[players[i].id].opponents.has(players[j].id)) c += 5e6;
+    c += Math.abs(i-j);
+    return c;
+  };
+  const partners = i =>{
+    const cs=[];
+    for(let j=0;j<n;j++) if(j!==i && !used[j]) cs.push(j);
+    cs.sort((a,b)=>cost(i,a)-cost(i,b));
+    return cs;
+  };
+  function solve(){
+    if(--budget<0) return false;
+    const i = used.indexOf(false);
+    if(i===-1) return true;
+    used[i]=true;
+    for(const j of partners(i)){
+      if(!allowRematch && S[players[i].id].opponents.has(players[j].id)) continue;
+      used[j]=true; out.push([i,j]);
+      if(solve()) return true;
+      out.pop(); used[j]=false;
+    }
+    used[i]=false; return false;
+  }
+  if(solve()) return out.map(([i,j])=>[players[i],players[j]]);
+  return null;
+}
+
+function generateNextRound(){
+  const roundNum = state.rounds.length+1;
+  const cfg = state.settings;
+  const S = computeStats();
+  let active = state.players.filter(p=>p.active!==false);
+  if(active.length<2){ alert("Need at least 2 active players."); return; }
+
+  // honour requested byes (half-point) — these players sit out this round
+  const requested = active.filter(p=>p.byeRequest);
+  active = active.filter(p=>!p.byeRequest);
+
+  if(roundNum===1){
+    if(cfg.round1==="random") shuffle(active);
+    else active.sort((a,b)=>(b.rating||0)-(a.rating||0) || a.name.localeCompare(b.name));
+  } else {
+    active.sort((a,b)=> S[b.id].points-S[a.id].points ||
+      (cfg.trackSpread? S[b.id].spread-S[a.id].spread:0) ||
+      (b.rating||0)-(a.rating||0));
+  }
+
+  let byePlayer=null;
+  if(active.length%2===1){ byePlayer=pickBye(active,S); active=active.filter(p=>p!==byePlayer); }
+
+  let pairs;
+  if(roundNum===1 && cfg.round1==="fold" && active.length){
+    pairs = foldPair(active);
+  } else if(active.length){
+    pairs = matchPairs(active,S,false);
+    if(!pairs){
+      pairs = matchPairs(active,S,true);
+      if(pairs) flash("Some rematches were unavoidable this round.","warn");
+    }
+  } else pairs = [];
+  if(!pairs){ alert("Could not generate pairings."); return; }
+
+  const pairings = pairs.map(pr=>{
+    let [a,b]=pr;
+    if(cfg.firstBalance && S[b.id].firstCount < S[a.id].firstCount) [a,b]=[b,a];
+    return {p1:a.id, p2:b.id, result:{winner:null,score1:null,score2:null}};
+  });
+  // top boards first
+  pairings.sort((x,y)=> (S[y.p1].points+S[y.p2].points) - (S[x.p1].points+S[x.p2].points));
+  if(byePlayer) pairings.push({p1:byePlayer.id, p2:null, result:{byeType:"pairing"}});
+  requested.forEach(p=> pairings.push({p1:p.id, p2:null, result:{byeType:"half"}}));
+  pairings.forEach((pg,i)=>pg.table=i+1);
+
+  // clear bye requests now they're satisfied
+  requested.forEach(p=> delete p.byeRequest);
+
+  state.rounds.push({number:roundNum, pairings});
+  activeTab="pairings"; state._viewRound=null; save(); render();
+}
+
+function roundComplete(rd){
+  return rd.pairings.every(pg=> pg.p2===null || (pg.result && (pg.result.winner || pg.result.forfeit)));
+}
+
+/* ---------------- Result entry ---------------- */
+function setResult(rIdx,pIdx,winner){
+  const pg = state.rounds[rIdx].pairings[pIdx];
+  pg.result.forfeit=false; pg.result.winner = winner;
+  save(); render();
+}
+function setScore(rIdx,pIdx,which,val){
+  const pg = state.rounds[rIdx].pairings[pIdx];
+  pg.result.forfeit=false;
+  pg.result[which] = val===""?null:Number(val);
+  const {score1,score2}=pg.result;
+  if(score1!=null && score2!=null) pg.result.winner = score1>score2?"p1":score2>score1?"p2":"draw";
+  else if(score1==null && score2==null) pg.result.winner=null;
+  save(); render();
+}
+function setSpecial(rIdx,pIdx,mode){
+  const pg = state.rounds[rIdx].pairings[pIdx]; const r=pg.result;
+  if(mode==="none"){ r.forfeit=false; r.winner=null; }
+  else if(mode==="p1"){ r.forfeit=true; r.winner="p1"; r.score1=r.score2=null; }
+  else if(mode==="p2"){ r.forfeit=true; r.winner="p2"; r.score1=r.score2=null; }
+  else if(mode==="double"){ r.forfeit=true; r.winner=null; r.score1=r.score2=null; }
+  save(); render();
+}
+function setByeType(rIdx,pIdx,t){ state.rounds[rIdx].pairings[pIdx].result.byeType=t; save(); render(); }
+
+/* ==================================================================
+   Rendering
+   ================================================================== */
+function flash(msg,type){ state._flash={msg,type}; }
+function statusbar(){
+  const active = state.players.filter(p=>p.active!==false).length;
+  const sb = document.getElementById("statusbar");
+  const cur = state.rounds.length;
+  const cell=(k,v)=>`<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+  sb.innerHTML =
+    cell("Players", active) +
+    cell("Round", `${cur} / ${state.settings.totalRounds}`) +
+    cell("Status", cur===0?"Setup":(roundComplete(state.rounds[cur-1])?"Complete":"In play"));
+}
+
+function viewPlayers(){
+  const S = computeStats();
+  const rows = state.players.map(p=>{
+    const s=S[p.id];
+    const wd = p.active===false;
+    return `<tr class="${wd?'inactive':''}">
+      <td>${esc(p.name)} ${wd?'<span class="tag wd">withdrawn</span>':(p.byeRequest?'<span class="tag bye">bye next</span>':'')}</td>
+      <td class="num">${p.rating||"—"}</td>
+      <td class="num">${s.points}</td>
+      <td class="num">${s.wins}-${s.losses}${s.draws?("-"+s.draws):""}${s.byes?` <span class="pill">(${s.byes}b)</span>`:""}</td>
+      <td class="row" style="gap:4px;justify-content:flex-end">
+        <button class="btn ghost sm" data-act="bye" data-id="${p.id}" title="request a half-point bye next round">${p.byeRequest?"Cancel bye":"Bye"}</button>
+        <button class="btn ghost sm" data-act="toggle" data-id="${p.id}">${wd?"Reinstate":"Withdraw"}</button>
+        <button class="btn danger sm" data-act="del" data-id="${p.id}">✕</button>
+      </td></tr>`;
+  }).join("");
+  return `
+  <div class="card">
+    <h2>Add players</h2>
+    <div class="row">
+      <input id="pName" placeholder="Player name" style="flex:1;min-width:160px">
+      <input id="pRating" type="number" placeholder="Rating">
+      <button class="btn primary" id="addPlayer">Add</button>
+    </div>
+    <hr class="sep">
+    <h2>Bulk add <span class="hint">one per line — “Name” or “Name, rating”</span></h2>
+    <textarea id="bulk" rows="4" style="width:100%" placeholder="Alice, 1750&#10;Bob, 1600&#10;Carol"></textarea>
+    <div class="row" style="margin-top:8px"><button class="btn" id="bulkAdd">Add all</button></div>
+  </div>
+  <div class="card">
+    <h2>Roster <span class="hint">${state.players.length} player(s)</span></h2>
+    ${state.players.length? `<table><thead><tr>
+      <th>Name</th><th class="num">Rating</th><th class="num">Pts</th><th class="num">Record</th><th></th>
+      </tr></thead><tbody>${rows}</tbody></table>`
+      : `<div class="empty">No players yet — add some above to begin.</div>`}
+  </div>`;
+}
+
+function specialMode(r){ return !r.forfeit ? "none" : r.winner==="p1"?"p1" : r.winner==="p2"?"p2" : "double"; }
+
+function pairingRow(rIdx,pg,pIdx){
+  const cfg=state.settings;
+  if(pg.p2===null){
+    const t=(pg.result&&pg.result.byeType)||"pairing";
+    const opt=(v,lbl)=>`<option value="${v}" ${v===t?"selected":""}>${lbl}</option>`;
+    return `<div class="pairing">
+      <div class="tb">${pg.table}</div>
+      <div class="pname left">${esc(pname(pg.p1))} <span class="tag bye">BYE</span></div>
+      <div class="vs pill">—</div>
+      <div class="pname right ctrl">
+        <select class="special" data-act="byetype" data-r="${rIdx}" data-p="${pIdx}">
+          ${opt("pairing",`Pairing bye (+${cfg.byePoints})`)}${opt("full","Full point (+1)")}${opt("half","Half point (+½)")}${opt("zero","Zero point (0)")}
+        </select>
+      </div>
+    </div>`;
+  }
+  const r=pg.result||{};
+  const winClass = r.winner==="p1"?"win-l":r.winner==="p2"?"win-r":"";
+  const sm = specialMode(r);
+  let ctrl;
+  if(r.forfeit){
+    ctrl = `<div class="ctrl"><span class="tag">${sm==="double"?"double forfeit":(r.winner==="p1"?esc(pname(pg.p1)):esc(pname(pg.p2)))+" wins by forfeit"}</span></div>`;
+  } else if(cfg.trackSpread){
+    ctrl = `<div class="ctrl">
+      <input class="scorein" type="number" inputmode="numeric" value="${r.score1??""}" data-act="score" data-r="${rIdx}" data-p="${pIdx}" data-w="score1" placeholder="—">
+      <span class="pill">:</span>
+      <input class="scorein" type="number" inputmode="numeric" value="${r.score2??""}" data-act="score" data-r="${rIdx}" data-p="${pIdx}" data-w="score2" placeholder="—">
+    </div>`;
+  } else {
+    const b=(w,lbl)=>`<button class="${r.winner===w?'on':''}" data-act="res" data-r="${rIdx}" data-p="${pIdx}" data-win="${w}">${lbl}</button>`;
+    ctrl = `<div class="ctrl"><div class="resbtns">
+      ${b("p1","◀ Win")}${cfg.drawAllowed?b("draw","Draw"):""}${b("p2","Win ▶")}
+    </div></div>`;
+  }
+  const optS=(v,lbl)=>`<option value="${v}" ${v===sm?"selected":""}>${lbl}</option>`;
+  const special = `<select class="special" data-act="special" data-r="${rIdx}" data-p="${pIdx}" title="forfeits / no-shows">
+      ${optS("none","Played")}${optS("p1",esc(pname(pg.p1))+" by forfeit")}${optS("p2",esc(pname(pg.p2))+" by forfeit")}${optS("double","Double forfeit")}
+    </select>`;
+  const first = cfg.firstBalance? `<span class="firsttag" title="goes first">1st</span>`:"";
+  return `<div class="pairing ${winClass} ${r.forfeit?'forf':''}">
+    <div class="tb">${pg.table}</div>
+    <div class="pname left">${r.winner==="p1"?'<span class="win-dot"></span>':''}${esc(pname(pg.p1))} ${first}</div>
+    <div class="vs pill">vs</div>
+    <div class="pname right">${esc(pname(pg.p2))}${r.winner==="p2"?' <span class="win-dot"></span>':''}</div>
+    <div style="grid-column:1/-1" class="ctrl">${ctrl}${special}</div>
+  </div>`;
+}
+
+function viewPairings(){
+  const cur = state.rounds.length;
+  const reqCount = state.players.filter(p=>p.active!==false && p.byeRequest).length;
+  let head = `<div class="card"><div class="toolbar">`;
+  const canStart = cur===0 || roundComplete(state.rounds[cur-1]);
+  const reachedMax = cur>=state.settings.totalRounds;
+  head += `<button class="btn primary" id="genRound" ${canStart && !reachedMax?"":"disabled"}>
+      ${cur===0?"Generate Round 1":"Generate Round "+(cur+1)}</button>`;
+  if(cur>0){
+    head += `<button class="btn ghost" id="printR">Print</button>`;
+    head += `<button class="btn danger" id="delRound">Delete last round</button>`;
+  }
+  head += `</div>`;
+  if(state._flash){ head += `<div class="banner ${state._flash.type}">${esc(state._flash.msg)}</div>`; state._flash=null; }
+  if(reqCount) head += `<div class="banner info">${reqCount} player(s) requested a half-point bye — they'll sit out the next round.</div>`;
+  if(cur>0 && !canStart) head += `<div class="banner warn">Enter all results for round ${cur} before pairing the next.</div>`;
+  if(reachedMax && canStart) head += `<div class="banner good">All ${state.settings.totalRounds} rounds complete. 🏆 See Standings.</div>`;
+  head += `</div>`;
+
+  if(cur===0) return head + `<div class="card"><div class="empty">No rounds yet. Add players, then generate Round 1.</div></div>`;
+
+  const sel = state.rounds.map(rd=>`<option value="${rd.number}" ${rd.number===(state._viewRound||cur)?"selected":""}>Round ${rd.number}${roundComplete(rd)?" ✓":""}</option>`).join("");
+  const shown = state._viewRound||cur;
+  const rd = state.rounds[shown-1];
+  const rIdx = shown-1;
+  const body = rd.pairings.map((pg,i)=>pairingRow(rIdx,pg,i)).join("");
+  return head + `<div class="card">
+    <h2>Round pairings <span class="hint"><select id="roundSel">${sel}</select></span></h2>
+    ${body}
+  </div>`;
+}
+
+function viewStandings(){
+  const {list,order}=standings();
+  if(!list.length) return `<div class="card"><div class="empty">No players to rank yet.</div></div>`;
+  const cols = order.filter(k=>k!=="rating" && k!=="headToHead"); // numeric tiebreak columns to display
+  const head = cols.map(k=>`<th class="num" title="${esc(TB_DEFS[k].title)}">${shortTb(k)}</th>`).join("");
+  const cellVal = (s,k)=> k==="spread"?fmtSpread(s.spread)
+    : k==="wins"?s.wins
+    : k==="cumulative"?s.cumulative
+    : s[k];
+  const rows = list.map((e,i)=>{
+    const s=e.s, wd=e.p.active===false;
+    return `<tr class="${wd?'inactive':''}">
+      <td class="rank">${i+1}</td>
+      <td>${esc(e.p.name)} ${e.p.rating?`<span class="pill">${e.p.rating}</span>`:""}${wd?' <span class="tag wd">wd</span>':''}</td>
+      <td class="num"><b>${s.points}</b></td>
+      <td class="num">${s.wins}-${s.losses}${s.draws?("-"+s.draws):""}</td>
+      ${cols.map(k=>`<td class="num">${cellVal(s,k)}</td>`).join("")}
+    </tr>`;
+  }).join("");
+  const orderTxt = ["Points", ...order.map(k=>TB_DEFS[k].label)].join(" → ");
+  return `<div class="card">
+    <div class="toolbar">
+      <h2 style="margin:0">Standings</h2><div class="spacer" style="flex:1"></div>
+      <button class="btn ghost sm" id="csvStand">Export CSV</button>
+      <button class="btn ghost sm" id="printS">Print</button>
+    </div>
+    <div class="cxwrap"><table><thead><tr>
+      <th class="rank">#</th><th>Player</th><th class="num">Pts</th><th class="num">W-L</th>${head}
+    </tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="note" style="margin-top:10px">Tiebreaks: ${esc(orderTxt)}. <span class="hint">Adjust order in Settings.</span></div>
+  </div>`;
+}
+function shortTb(k){ return {spread:"Spread",buchholz:"Buch",bhCut1:"Buch-1",sb:"SB",sbCut1:"SB-1",cumulative:"Cum.",wins:"Wins"}[k]||k; }
+
+function viewCrosstable(){
+  const {list,S}=standings();
+  if(!list.length) return `<div class="card"><div class="empty">Nothing to show yet.</div></div>`;
+  const nR = state.rounds.length;
+  // stable seed numbers (by rating) for compact opponent references
+  const seeds={}; state.players.slice().sort((a,b)=>(b.rating||0)-(a.rating||0)||a.name.localeCompare(b.name))
+    .forEach((p,i)=> seeds[p.id]=i+1);
+  const cell = (s, rno)=>{
+    const g = (s.log||[]).find(x=>x.round===rno);
+    if(!g) return `<td class="cell absent">·</td>`;
+    if(g.kind==="pending") return `<td class="cell">…</td>`;
+    if(g.kind==="absent") return `<td class="cell absent" title="absent / withdrawn">—</td>`;
+    if(g.kind==="bye"){ const lbl={pairing:"BYE",full:"BYE",half:"BYE½",zero:"BYE0"}[g.byeType]||"BYE";
+      return `<td class="cell bye" title="${g.byeType} bye">${lbl}</td>`; }
+    if(g.kind==="ffwin") return `<td class="cell"><span class="res w">+F</span> <span class="op">${seeds[g.oppReal]||""}</span></td>`;
+    if(g.kind==="ffloss") return `<td class="cell"><span class="res l">−F</span> <span class="op">${seeds[g.oppReal]||""}</span></td>`;
+    const rc = g.result==="W"?"w":g.result==="L"?"l":"d";
+    const sym = g.result==="W"?"W":g.result==="L"?"L":"½";
+    const tip = (g.spread? "spread "+fmtSpread(g.spread)+" · ":"")+"vs "+pname(g.oppId);
+    return `<td class="cell" title="${esc(tip)}"><span class="res ${rc}">${sym}</span> <span class="op">${seeds[g.oppId]||""}</span></td>`;
+  };
+  const rhead = Array.from({length:nR},(_,i)=>`<th class="num">${i+1}</th>`).join("");
+  const rows = list.map((e,i)=>{
+    const s=e.s;
+    return `<tr class="${e.p.active===false?'inactive':''}">
+      <td class="num">${seeds[e.p.id]}</td>
+      <td>${i+1}. ${esc(e.p.name)}</td>
+      <td class="num">${e.p.rating||""}</td>
+      ${Array.from({length:nR},(_,r)=>cell(s,r+1)).join("")}
+      <td class="num"><b>${s.points}</b></td>
+    </tr>`;
+  }).join("");
+  return `<div class="card">
+    <div class="toolbar"><h2 style="margin:0">Crosstable</h2><div class="spacer" style="flex:1"></div>
+      <button class="btn ghost sm" id="printC">Print</button></div>
+    <div class="cxwrap"><table class="cx"><thead><tr>
+      <th>No</th><th>Player</th><th class="num">Rtg</th>${rhead}<th class="num">Pts</th>
+    </tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="note" style="margin-top:10px">Cells show result and opponent's start-number (hover for detail). W/L/½ = win/loss/draw; +F/−F = forfeit; BYE½ = half-point bye.</div>
+  </div>`;
+}
+
+function viewSettings(){
+  const c=state.settings;
+  const opt=(v,cur,lbl)=>`<option value="${v}" ${v===cur?"selected":""}>${lbl}</option>`;
+  const chk=(key,lbl,desc)=>`<label class="check"><input type="checkbox" data-set="${key}" ${c[key]?"checked":""}>
+    <span><b>${lbl}</b><span class="desc">${desc}</span></span></label>`;
+  const order = effectiveTbOrder();
+  const tbItems = order.map((k,i)=>`<div class="tbitem">
+      <span class="ord">${i+1}</span><span class="nm" title="${esc(TB_DEFS[k].title)}">${TB_DEFS[k].label}</span>
+      <span class="arrows">
+        <button class="btn ghost sm" data-tbmove="up" data-k="${k}" ${i===0?"disabled":""}>↑</button>
+        <button class="btn ghost sm" data-tbmove="down" data-k="${k}" ${i===order.length-1?"disabled":""}>↓</button>
+        <button class="btn danger sm" data-tbremove="${k}">×</button>
+      </span></div>`).join("");
+  const avail = Object.keys(TB_DEFS).filter(k=>!order.includes(k));
+  const tbAdd = avail.map(k=>`<button class="btn sm" data-tbadd="${k}">+ ${TB_DEFS[k].label}</button>`).join("");
+  return `<div class="card">
+    <h2>Tournament</h2>
+    <div class="row" style="gap:14px">
+      <label class="fld">Name<input id="setName" value="${esc(state.name)}" style="min-width:220px"></label>
+      <label class="fld">Total rounds<input id="setRounds" type="number" min="1" value="${c.totalRounds}"></label>
+      <label class="fld">Round 1 pairing
+        <select id="setR1">${opt("fold",c.round1,"Fold (rating: top vs bottom)")}${opt("adjacent",c.round1,"Adjacent (1v2, 3v4)")}${opt("random",c.round1,"Random")}</select>
+      </label>
+    </div>
+    <hr class="sep">
+    <h2>Scoring</h2>
+    <div class="checks">
+      ${chk("trackSpread","Track point spread","Enter game scores (Scrabble-style); spread can be used as a tiebreak.")}
+      ${chk("drawAllowed","Allow draws","Show a Draw option when entering results without scores.")}
+      ${chk("firstBalance","Balance who goes first","Auto-assign first move / colour to even things out across rounds.")}
+    </div>
+    <div class="row" style="gap:14px;margin-top:12px">
+      <label class="fld">Pairing-bye points<input id="setByeP" type="number" step="0.5" value="${c.byePoints}"></label>
+      <label class="fld">Bye / forfeit spread<input id="setByeS" type="number" value="${c.byeSpread}"></label>
+    </div>
+    <hr class="sep">
+    <h2>Tie-break order <span class="hint">applied after total points</span></h2>
+    <div class="tblist">${tbItems||'<div class="note">No tiebreaks — ties fall back to rating then name.</div>'}</div>
+    ${avail.length?`<div class="tbadd">${tbAdd}</div>`:""}
+    <div class="note" style="margin-top:8px">Buchholz / Cut-1 / Sonneborn-Berger follow the FIDE&nbsp;C.07 (2023) rules, including byes, forfeits &amp; withdrawals.</div>
+    <hr class="sep">
+    <h2>Danger zone</h2>
+    <div class="row">
+      <button class="btn danger" id="resetRounds">Clear all rounds</button>
+      <button class="btn danger" id="resetAll">Reset everything</button>
+    </div>
+  </div>`;
+}
+
+function render(){
+  document.getElementById("tname").textContent = state.name;
+  document.getElementById("tsub").textContent =
+    `${state.settings.totalRounds}-round Swiss${state.settings.trackSpread?" · spread tracked":""}`;
+  statusbar();
+  document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("active", b.dataset.tab===activeTab));
+  const v=document.getElementById("view");
+  v.innerHTML = activeTab==="players"?viewPlayers()
+    : activeTab==="pairings"?viewPairings()
+    : activeTab==="standings"?viewStandings()
+    : activeTab==="crosstable"?viewCrosstable()
+    : viewSettings();
+  wire();
+}
+
+/* ==================================================================
+   Event wiring
+   ================================================================== */
+function addPlayer(name,rating){
+  name=(name||"").trim(); if(!name) return;
+  state.players.push({id:state.nextId++, name, rating:rating?Number(rating):null, active:true});
+}
+function moveTb(k,dir){
+  const order = effectiveTbOrder().slice();
+  const i = order.indexOf(k); if(i<0) return;
+  const j = dir==="up"?i-1:i+1; if(j<0||j>=order.length) return;
+  [order[i],order[j]]=[order[j],order[i]];
+  state.settings.tbOrder=order; save(); render();
+}
+function wire(){
+  const $ = s=>document.getElementById(s);
+
+  if(activeTab==="players"){
+    $("addPlayer").onclick=()=>{ addPlayer($("pName").value,$("pRating").value); save(); render(); };
+    $("pName").onkeydown=e=>{ if(e.key==="Enter") $("addPlayer").click(); };
+    $("pRating").onkeydown=e=>{ if(e.key==="Enter") $("addPlayer").click(); };
+    $("bulkAdd").onclick=()=>{
+      $("bulk").value.split(/\r?\n/).forEach(line=>{
+        line=line.trim(); if(!line) return;
+        const m=line.split(",");
+        addPlayer(m[0], m[1]?m[1].trim():"");
+      });
+      save(); render();
+    };
+    document.querySelectorAll("[data-act]").forEach(el=>{
+      el.onclick=()=>{
+        const id=Number(el.dataset.id), act=el.dataset.act, p=byId(id);
+        if(act==="del"){
+          if(state.rounds.length && !confirm("This player appears in existing rounds. Remove anyway?")) return;
+          state.players=state.players.filter(x=>x.id!==id);
+        } else if(act==="toggle"){ p.active = p.active===false; if(p.active) {} }
+        else if(act==="bye"){ p.byeRequest = !p.byeRequest; }
+        save(); render();
+      };
+    });
+  }
+
+  if(activeTab==="pairings"){
+    if($("genRound")) $("genRound").onclick=generateNextRound;
+    if($("delRound")) $("delRound").onclick=()=>{ if(confirm("Delete the last round and its results?")){ state.rounds.pop(); state._viewRound=null; save(); render(); } };
+    if($("printR")) $("printR").onclick=()=>window.print();
+    if($("roundSel")) $("roundSel").onchange=e=>{ state._viewRound=Number(e.target.value); render(); };
+    document.querySelectorAll('[data-act="res"]').forEach(b=> b.onclick=()=>setResult(+b.dataset.r,+b.dataset.p,b.dataset.win));
+    document.querySelectorAll('[data-act="score"]').forEach(inp=> inp.onchange=()=>setScore(+inp.dataset.r,+inp.dataset.p,inp.dataset.w,inp.value));
+    document.querySelectorAll('[data-act="special"]').forEach(s=> s.onchange=()=>setSpecial(+s.dataset.r,+s.dataset.p,s.value));
+    document.querySelectorAll('[data-act="byetype"]').forEach(s=> s.onchange=()=>setByeType(+s.dataset.r,+s.dataset.p,s.value));
+  }
+
+  if(activeTab==="standings"){
+    if($("printS")) $("printS").onclick=()=>window.print();
+    if($("csvStand")) $("csvStand").onclick=exportStandingsCSV;
+  }
+  if(activeTab==="crosstable"){ if($("printC")) $("printC").onclick=()=>window.print(); }
+
+  if(activeTab==="settings"){
+    $("setName").onchange=e=>{ state.name=e.target.value||"My Tournament"; save(); render(); };
+    $("setRounds").onchange=e=>{ state.settings.totalRounds=Math.max(1,Number(e.target.value)||1); save(); render(); };
+    $("setR1").onchange=e=>{ state.settings.round1=e.target.value; save(); };
+    $("setByeP").onchange=e=>{ state.settings.byePoints=Number(e.target.value)||0; save(); render(); };
+    $("setByeS").onchange=e=>{ state.settings.byeSpread=Number(e.target.value)||0; save(); render(); };
+    document.querySelectorAll("[data-set]").forEach(cb=> cb.onchange=()=>{ state.settings[cb.dataset.set]=cb.checked; save(); render(); });
+    document.querySelectorAll("[data-tbmove]").forEach(b=> b.onclick=()=>moveTb(b.dataset.k,b.dataset.tbmove));
+    document.querySelectorAll("[data-tbremove]").forEach(b=> b.onclick=()=>{ state.settings.tbOrder=effectiveTbOrder().filter(k=>k!==b.dataset.tbremove); save(); render(); });
+    document.querySelectorAll("[data-tbadd]").forEach(b=> b.onclick=()=>{ state.settings.tbOrder=[...effectiveTbOrder(), b.dataset.tbadd]; save(); render(); });
+    $("resetRounds").onclick=()=>{ if(confirm("Clear all rounds and results? Players are kept.")){ state.rounds=[]; state._viewRound=null; save(); render(); } };
+    $("resetAll").onclick=()=>{ if(confirm("Erase everything and start over?")){ state=freshState(); save(); render(); } };
+  }
+}
+
+/* ---------------- Import / Export ---------------- */
+function download(filename,text,type){
+  const blob=new Blob([text],{type:type||"application/json"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download=filename; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+function exportStandingsCSV(){
+  const {list,order}=standings();
+  const cols = order.filter(k=>k!=="rating"&&k!=="headToHead");
+  const head=["Rank","Player","Rating","Points","Wins","Losses","Draws", ...cols.map(k=>TB_DEFS[k].label)];
+  const rows=list.map((e,i)=>{ const s=e.s;
+    return [i+1,e.p.name,e.p.rating||"",s.points,s.wins,s.losses,s.draws,
+      ...cols.map(k=> k==="spread"?s.spread : k==="wins"?s.wins : k==="cumulative"?s.cumulative : s[k])]; });
+  const csv=[head,...rows].map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
+  download((state.name||"standings")+"-standings.csv",csv,"text/csv");
+}
+document.getElementById("btnExport").onclick=()=>download((state.name||"tournament")+".json",JSON.stringify(state,null,2));
+document.getElementById("btnImport").onclick=()=>document.getElementById("fileImport").click();
+document.getElementById("fileImport").onchange=e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>{ try{ const s=JSON.parse(rd.result); s.settings={...DEFAULT_SETTINGS,...(s.settings||{})}; state=s; activeTab="standings"; save(); render(); }catch(err){ alert("Invalid file."); } };
+  rd.readAsText(f);
+};
+
+/* ---------------- Boot ---------------- */
+document.querySelectorAll("#tabs button").forEach(b=>{
+  b.onclick=()=>{ activeTab=b.dataset.tab; state._viewRound=null; render(); };
+});
+render();
+</script>
+</body>
+</html>
