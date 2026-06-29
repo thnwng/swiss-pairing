@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light" data-accent="slate">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Halcyon — design system reference</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="components.css" />
+  <style>
+    /* Page-only layout helpers (not part of the system). */
+    body { max-width: 1100px; margin: 0 auto; padding: var(--space-8) var(--space-6) var(--space-24); }
+    .eyebrow {
+      font-family: var(--font-mono); font-size: var(--text-2xs); font-weight: var(--weight-medium);
+      letter-spacing: var(--tracking-widest); text-transform: uppercase; color: var(--text-faint);
+    }
+    h1 { font-size: var(--text-4xl); font-weight: var(--weight-extrabold); letter-spacing: var(--tracking-tight); }
+    h2 { font-size: var(--text-xl); font-weight: var(--weight-bold); letter-spacing: var(--tracking-tight);
+         margin-top: var(--space-12); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border); }
+    .sub { color: var(--text-muted); font-size: var(--text-md); }
+    .row { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
+    .stack { display: flex; flex-direction: column; gap: var(--space-3); }
+    .grid { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+    .swatch { height: 56px; border-radius: var(--radius-sm); border: 1px solid var(--border); display: flex;
+              align-items: flex-end; padding: var(--space-1-5); font-family: var(--font-mono); font-size: var(--text-2xs); }
+    .topbar { position: sticky; top: 0; z-index: 100; display: flex; gap: var(--space-4); align-items: center;
+              flex-wrap: wrap; padding: var(--space-3) 0; margin-bottom: var(--space-6);
+              background: var(--glass); backdrop-filter: var(--blur-md); border-bottom: 1px solid var(--border); }
+    .seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--bg-sunken); border-radius: var(--radius-md); }
+    .seg button { appearance: none; border: 0; background: transparent; cursor: pointer; color: var(--text-muted);
+                  font-family: var(--font-sans); font-size: var(--text-xs); font-weight: var(--weight-medium);
+                  padding: 6px 12px; border-radius: var(--radius-sm); }
+    .seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow-xs); }
+    .spec { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-faint); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <strong style="font-weight:var(--weight-bold); letter-spacing:var(--tracking-tight)">Halcyon</strong>
+    <span class="eyebrow">easy on the eyes</span>
+    <span style="flex:1"></span>
+    <div class="seg" id="theme-seg">
+      <button data-theme-val="light" aria-pressed="true">Light</button>
+      <button data-theme-val="dark" aria-pressed="false">Dark</button>
+    </div>
+    <div class="seg" id="accent-seg">
+      <button data-accent-val="slate" aria-pressed="true">Slate</button>
+      <button data-accent-val="sage" aria-pressed="false">Sage</button>
+    </div>
+  </div>
+
+  <p class="eyebrow">Personal design system</p>
+  <h1>Halcyon</h1>
+  <p class="sub">Calm, low-contrast, easy on the eyes. Every element below is driven by the same CSS tokens — switch theme or accent above and watch them all adapt.</p>
+
+  <!-- TYPOGRAPHY -->
+  <h2>Typography</h2>
+  <div class="stack">
+    <p class="eyebrow">Mono eyebrow · the signature accent</p>
+    <div style="font-size:var(--text-5xl); font-weight:var(--weight-extrabold); letter-spacing:var(--tracking-tight); line-height:var(--leading-tight)">Grotesk display</div>
+    <div style="font-size:var(--text-2xl); font-weight:var(--weight-bold)">Heading — Hanken Grotesk</div>
+    <p style="max-width:60ch; color:var(--text-muted)">Body copy at 16px. Hanken Grotesk for everything structural; JetBrains Mono for labels, data and code. Nothing shouts.</p>
+    <div style="font-family:var(--font-mono); font-size:var(--text-sm); color:var(--text-muted)">const data = "JetBrains Mono";</div>
+  </div>
+
+  <!-- COLORS -->
+  <h2>Color tokens</h2>
+  <p class="spec">Surfaces &amp; text</p>
+  <div class="grid">
+    <div class="swatch" style="background:var(--bg)">--bg</div>
+    <div class="swatch" style="background:var(--bg-subtle)">--bg-subtle</div>
+    <div class="swatch" style="background:var(--bg-sunken)">--bg-sunken</div>
+    <div class="swatch" style="background:var(--surface)">--surface</div>
+    <div class="swatch" style="background:var(--surface-hover)">--surface-hover</div>
+    <div class="swatch" style="background:var(--text); color:var(--text-inverse)">--text</div>
+    <div class="swatch" style="background:var(--text-muted); color:var(--text-inverse)">--text-muted</div>
+  </div>
+  <p class="spec" style="margin-top:var(--space-4)">Accent &amp; status</p>
+  <div class="grid">
+    <div class="swatch" style="background:var(--accent); color:var(--accent-fg)">--accent</div>
+    <div class="swatch" style="background:var(--accent-subtle); color:var(--accent-text)">--accent-subtle</div>
+    <div class="swatch" style="background:var(--success); color:#fff">--success</div>
+    <div class="swatch" style="background:var(--warning); color:#fff">--warning</div>
+    <div class="swatch" style="background:var(--danger); color:#fff">--danger</div>
+    <div class="swatch" style="background:var(--info); color:#fff">--info</div>
+  </div>
+
+  <!-- BUTTONS -->
+  <h2>Buttons</h2>
+  <div class="row">
+    <button class="hc-btn">Primary</button>
+    <button class="hc-btn hc-btn--secondary">Secondary</button>
+    <button class="hc-btn hc-btn--ghost">Ghost</button>
+    <button class="hc-btn hc-btn--subtle">Subtle</button>
+    <button class="hc-btn hc-btn--danger">Danger</button>
+    <button class="hc-btn" disabled>Disabled</button>
+  </div>
+  <div class="row" style="margin-top:var(--space-3)">
+    <button class="hc-btn hc-btn--sm">Small</button>
+    <button class="hc-btn">Medium</button>
+    <button class="hc-btn hc-btn--lg">Large</button>
+  </div>
+
+  <!-- FORM CONTROLS -->
+  <h2>Form controls</h2>
+  <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); align-items:start">
+    <div class="hc-field">
+      <label class="hc-label">Text input</label>
+      <input class="hc-input" placeholder="Type here…" />
+      <span class="hc-hint">A short hint.</span>
+    </div>
+    <div class="hc-field">
+      <label class="hc-label">Select</label>
+      <div class="hc-select-wrap"><select class="hc-select"><option>Slate</option><option>Sage</option></select></div>
+    </div>
+    <div class="hc-field">
+      <label class="hc-label">Textarea</label>
+      <textarea class="hc-textarea" placeholder="Longer text…"></textarea>
+    </div>
+  </div>
+  <div class="row" style="margin-top:var(--space-4)">
+    <label class="hc-check"><input type="checkbox" checked /><span class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 13l4 4L19 7"/></svg></span> Checkbox</label>
+    <label class="hc-check"><input type="radio" name="r" checked /><span class="box radio"></span> Radio</label>
+    <label class="hc-switch"><input type="checkbox" checked /><span class="track"></span> Switch</label>
+  </div>
+
+  <!-- CARDS -->
+  <h2>Cards &amp; boxes</h2>
+  <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(240px,1fr))">
+    <div class="hc-card hc-card--pad"><strong>Default card</strong><p class="sub" style="margin-top:var(--space-2)">Surface, hairline border, soft shadow.</p></div>
+    <div class="hc-card hc-card--raised hc-card--pad"><strong>Raised</strong><p class="sub" style="margin-top:var(--space-2)">More elevation.</p></div>
+    <div class="hc-card hc-card--interactive hc-card--pad"><strong>Interactive</strong><p class="sub" style="margin-top:var(--space-2)">Hover me.</p></div>
+  </div>
+
+  <!-- BADGES -->
+  <h2>Badges</h2>
+  <div class="row">
+    <span class="hc-badge">Default</span>
+    <span class="hc-badge hc-badge--accent">Accent</span>
+    <span class="hc-badge hc-badge--success">Success</span>
+    <span class="hc-badge hc-badge--warning">Warning</span>
+    <span class="hc-badge hc-badge--danger">Danger</span>
+    <span class="hc-badge hc-badge--info">Info</span>
+    <span class="hc-badge hc-badge--solid">Solid</span>
+  </div>
+
+  <!-- TABS -->
+  <h2>Tabs</h2>
+  <div class="row" style="gap:var(--space-6)">
+    <div class="hc-tabs"><button class="hc-tab" aria-selected="true">Overview</button><button class="hc-tab">Activity</button><button class="hc-tab">Settings</button></div>
+    <div class="hc-tabline"><button class="hc-tab" aria-selected="true">Overview</button><button class="hc-tab">Activity</button><button class="hc-tab">Settings</button></div>
+  </div>
+
+  <!-- LISTS -->
+  <h2>Lists</h2>
+  <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); align-items:start">
+    <div class="hc-card">
+      <ul class="hc-list hc-list--interactive">
+        <li class="hc-list-item"><span class="hc-list-main"><div class="hc-list-title">AEGINRT</div><div class="hc-list-sub">7 anagrams</div></span><span class="hc-list-meta">#1</span></li>
+        <li class="hc-list-item"><span class="hc-list-main"><div class="hc-list-title">AEINRST</div><div class="hc-list-sub">9 anagrams</div></span><span class="hc-list-meta">#2</span></li>
+        <li class="hc-list-item"><span class="hc-list-main"><div class="hc-list-title">AEORSTU</div><div class="hc-list-sub">5 anagrams</div></span><span class="hc-list-meta">#3</span></li>
+      </ul>
+    </div>
+    <ul class="hc-prose-list">
+      <li>Token-driven — no hard-coded colors.</li>
+      <li>Theme &amp; accent switch via one attribute.</li>
+      <li>Framework-agnostic; drop in anywhere.</li>
+    </ul>
+  </div>
+
+  <!-- TABLE -->
+  <h2>Table</h2>
+  <div class="hc-card" style="overflow:hidden">
+    <table class="hc-table hc-table--striped hc-table--hover">
+      <thead><tr><th>#</th><th>Word</th><th>Alphagram</th><th>Anag</th></tr></thead>
+      <tbody>
+        <tr><td class="hc-td-num">1</td><td><strong>NOTAIRE</strong></td><td class="hc-td-num">AEINORT</td><td class="hc-td-num">9</td></tr>
+        <tr><td class="hc-td-num">2</td><td><strong>OTARINE</strong></td><td class="hc-td-num">AEINORT</td><td class="hc-td-num">9</td></tr>
+        <tr><td class="hc-td-num">3</td><td><strong>ETAERIO</strong></td><td class="hc-td-num">AEEIORT</td><td class="hc-td-num">4</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- FEEDBACK -->
+  <h2>Feedback</h2>
+  <div class="stack" style="max-width:560px">
+    <div class="hc-alert"><span class="hc-alert-icon">ℹ</span><div>An accent-toned informational note.</div></div>
+    <div class="hc-alert hc-alert--success"><span class="hc-alert-icon">✓</span><div>Saved successfully.</div></div>
+    <div class="hc-alert hc-alert--danger"><span class="hc-alert-icon">!</span><div>Something needs attention.</div></div>
+    <div class="hc-progress"><i style="width:62%"></i></div>
+    <div class="row"><span class="spec">Press</span> <kbd class="hc-kbd">⌘</kbd> <kbd class="hc-kbd">K</kbd></div>
+  </div>
+
+  <hr class="hc-divider" style="margin-top:var(--space-16)" />
+  <p class="spec">Halcyon v1.0 · tokens + components + typed JS API · this page also demonstrates the runtime theme/accent switch from tokens.js</p>
+
+  <script type="module">
+    import { setTheme, setAccent } from "./tokens.js";
+    const press = (seg, val, attr) => {
+      seg.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset[attr] === val)));
+    };
+    document.getElementById("theme-seg").addEventListener("click", (e) => {
+      const v = e.target.dataset?.themeVal; if (!v) return;
+      setTheme(v); press(e.currentTarget, v, "themeVal");
+    });
+    document.getElementById("accent-seg").addEventListener("click", (e) => {
+      const v = e.target.dataset?.accentVal; if (!v) return;
+      setAccent(v); press(e.currentTarget, v, "accentVal");
+    });
+  </script>
+</body>
+</html>

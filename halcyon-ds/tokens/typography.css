@@ -1,0 +1,53 @@
+/* ============================================================
+   Halcyon — Typography
+   Hanken Grotesk (sans) + JetBrains Mono (mono accents)
+   ============================================================ */
+:root {
+  --font-sans:    'Hanken Grotesk', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', 'Menlo', Consolas, monospace;
+  --font-display: var(--font-sans);
+
+  /* Type scale (px) — base 16, airy */
+  --text-2xs: 11px;
+  --text-xs:  12px;
+  --text-sm:  13px;
+  --text-base:15px;
+  --text-md:  16px;
+  --text-lg:  18px;
+  --text-xl:  20px;
+  --text-2xl: 24px;
+  --text-3xl: 30px;
+  --text-4xl: 38px;
+  --text-5xl: 48px;
+  --text-6xl: 60px;
+  --text-7xl: 76px;
+
+  /* Line height */
+  --leading-none:    1;
+  --leading-tight:   1.15;
+  --leading-snug:    1.3;
+  --leading-normal:  1.5;
+  --leading-relaxed: 1.66;
+
+  /* Letter spacing */
+  --tracking-tighter: -0.03em;
+  --tracking-tight:   -0.015em;
+  --tracking-normal:  0;
+  --tracking-wide:    0.02em;
+  --tracking-wider:   0.06em;
+  --tracking-widest:  0.14em;
+
+  /* Weights */
+  --weight-light:     300;
+  --weight-regular:   400;
+  --weight-medium:    500;
+  --weight-semibold:  600;
+  --weight-bold:      700;
+  --weight-extrabold: 800;
+
+  /* Eyebrow / label role (mono, uppercase, tracked) */
+  --eyebrow-family:   var(--font-mono);
+  --eyebrow-size:     var(--text-xs);
+  --eyebrow-weight:   var(--weight-medium);
+  --eyebrow-tracking: var(--tracking-widest);
+}

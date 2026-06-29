@@ -1,0 +1,8 @@
+/* ============================================================
+   Halcyon — Webfonts
+   Sans:  Hanken Grotesk  (UI, body, display)
+   Mono:  JetBrains Mono  (labels, data, code, accents)
+   Loaded from Google Fonts. For production, self-host the
+   files and replace this @import with @font-face rules.
+   ============================================================ */
+@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,500&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap');
