@@ -138,6 +138,22 @@ table.cx td.cell{text-align:center;font-variant-numeric:tabular-nums;min-width:4
 .tbitem .nm{flex:1;font-weight:var(--weight-medium);font-size:var(--text-sm)}
 .tbitem .arrows{display:flex;gap:4px}
 .tbadd{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+/* remove the up/down spinners on the score boxes */
+.scorein::-webkit-outer-spin-button,.scorein::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.scorein{-moz-appearance:textfield;appearance:textfield}
+/* copy-results toolbar */
+.copybar{margin-top:-4px}
+.copybar select{max-width:min(60vw,340px)}
+/* welcome / session picker */
+body.welcome #hdrActions,body.welcome nav.tabs,body.welcome .statusbar{display:none}
+.sesslist{display:flex;flex-direction:column;gap:8px}
+.sess{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border:1px solid var(--border);border-radius:var(--radius-lg);
+  padding:12px 14px;background:var(--bg-subtle);transition:var(--transition)}
+.sess:hover{border-color:var(--text-faint);background:var(--surface-hover)}
+.sess .meta{flex:1;min-width:0}
+.sess .snm{font-weight:var(--weight-semibold)}
+.sess .sdt{color:var(--text-muted);font-size:var(--text-xs);font-family:var(--font-mono);margin-top:2px}
+.sess .sact{display:flex;gap:6px;flex-wrap:wrap}
 @media (max-width:560px){
   .pairing{grid-template-columns:26px 1fr;grid-template-areas:"tb left" "tb right" "tb ctrl";gap:6px}
   .pairing .tb{grid-area:tb} .pairing .left{grid-area:left} .pairing .right{grid-area:right;justify-content:flex-start;text-align:left}
@@ -159,7 +175,8 @@ table.cx td.cell{text-align:center;font-variant-numeric:tabular-nums;min-width:4
       <div class="sub" id="tsub">Tournament manager</div>
     </div>
     <div class="spacer"></div>
-    <div class="row">
+    <div class="row" id="hdrActions">
+      <button class="btn ghost sm" id="btnSessions">← Tournaments</button>
       <button class="btn ghost sm" id="btnExport">Export</button>
       <button class="btn ghost sm" id="btnImport">Import</button>
       <input type="file" id="fileImport" accept="application/json" style="display:none">
@@ -190,9 +207,11 @@ table.cx td.cell{text-align:center;font-variant-numeric:tabular-nums;min-width:4
    / SB-Cut1 values reproduced exactly).
    ================================================================== */
 
-const LS_KEY = "swissPairing.v1";
+const LS_KEY = "swissPairing.v2";
+const OLD_KEY = "swissPairing.v1";
 const DEFAULT_SETTINGS = {
   totalRounds: 6,
+  limitRounds: false,     // cap the number of rounds? (off => generate freely)
   round1: "fold",         // fold | adjacent | random
   trackSpread: true,      // Scrabble-style point margins
   drawAllowed: true,
@@ -201,26 +220,81 @@ const DEFAULT_SETTINGS = {
   firstBalance: true,     // balance who goes first / colours
   tbOrder: null,          // array of tiebreak keys, in priority order (null => auto)
 };
-let state = load();
-let activeTab = "players";
 
 const round2 = x => Math.round((x + Number.EPSILON) * 100) / 100;
 
-function freshState(){
-  return { name:"My Tournament", players:[], rounds:[], nextId:1, settings:{...DEFAULT_SETTINGS} };
+/* ------------------------------------------------------------------
+   Multi-session store.  Each session is a self-contained tournament
+   (name + created date + players/rounds/settings).  `state` points at
+   the currently-open session, or is null on the welcome screen.
+   ------------------------------------------------------------------ */
+function normalizeSession(t){
+  t = t || {};
+  return {
+    id: t.id,
+    name: t.name || "My Tournament",
+    created: t.created || Date.now(),
+    updated: t.updated || t.created || Date.now(),
+    players: t.players || [],
+    rounds: t.rounds || [],
+    nextId: t.nextId || 1,
+    settings: {...DEFAULT_SETTINGS, ...(t.settings||{})},
+  };
 }
-function load(){
+function loadStore(){
   try{
     const raw = localStorage.getItem(LS_KEY);
-    if(!raw) return freshState();
-    const s = JSON.parse(raw);
-    s.settings = {...DEFAULT_SETTINGS, ...(s.settings||{})};
-    s.players = s.players||[]; s.rounds = s.rounds||[]; s.nextId = s.nextId||1;
-    s.name = s.name||"My Tournament";
-    return s;
-  }catch(e){ return freshState(); }
+    if(raw){
+      const s = JSON.parse(raw);
+      s.sessions = (s.sessions||[]).map(normalizeSession);
+      let mx = 0; s.sessions.forEach(x=>{ if(typeof x.id==="number" && x.id>mx) mx=x.id; });
+      s.nextSessionId = Math.max(Number(s.nextSessionId)||0, mx+1);
+      s.sessions.forEach(x=>{ if(x.id==null) x.id = s.nextSessionId++; });
+      s.currentId = (s.currentId!=null && s.sessions.some(x=>x.id===s.currentId)) ? s.currentId : null;
+      return s;
+    }
+    // migrate a legacy single-tournament save into one session
+    const old = localStorage.getItem(OLD_KEY);
+    if(old){
+      const t = normalizeSession({...JSON.parse(old), id:1});
+      return {sessions:[t], currentId:null, nextSessionId:2};
+    }
+  }catch(e){}
+  return {sessions:[], currentId:null, nextSessionId:1};
 }
-function save(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+let store = loadStore();
+let state = store.currentId!=null ? store.sessions.find(s=>s.id===store.currentId) : null;
+let activeTab = "players";
+
+function save(){
+  if(state) state.updated = Date.now();
+  try{ localStorage.setItem(LS_KEY, JSON.stringify(store)); }catch(e){}
+}
+
+function createSession(name, dateVal){
+  const created = dateVal ? new Date(dateVal+"T00:00:00").getTime() : Date.now();
+  const s = normalizeSession({id: store.nextSessionId++, name:(name||"").trim()||"Untitled tournament", created, updated:created});
+  store.sessions.push(s);
+  store.currentId = s.id; state = s; activeTab = "players";
+  save(); render();
+}
+function openSession(id){
+  state = store.sessions.find(s=>s.id===id) || null;
+  store.currentId = state ? id : null;
+  activeTab = "players"; if(state) state._viewRound = null;
+  save(); render();
+}
+function closeSession(){ store.currentId = null; state = null; save(); render(); }
+function deleteSession(id){
+  store.sessions = store.sessions.filter(s=>s.id!==id);
+  if(store.currentId===id){ store.currentId = null; state = null; }
+  save(); render();
+}
+function renameSession(id){
+  const s = store.sessions.find(x=>x.id===id); if(!s) return;
+  const nm = prompt("Rename tournament:", s.name); if(nm==null) return;
+  s.name = nm.trim() || s.name; save(); render();
+}
 
 /* ---------------- Helpers ---------------- */
 const esc = s => String(s??"").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -578,6 +652,84 @@ function setSpecial(rIdx,pIdx,mode){
 function setByeType(rIdx,pIdx,t){ state.rounds[rIdx].pairings[pIdx].result.byeType=t; save(); render(); }
 
 /* ==================================================================
+   Copy results to clipboard (up to a chosen match, with whatever
+   info has been entered so far).
+   ================================================================== */
+function fmtDate(ts){ try{ return new Date(ts).toLocaleDateString(undefined,{year:"numeric",month:"short",day:"numeric"}); }catch(e){ return ""; } }
+function flatMatches(){
+  const out=[];
+  state.rounds.forEach((rd,ri)=>{
+    rd.pairings.slice().sort((a,b)=>(a.table||0)-(b.table||0)).forEach(pg=>{
+      out.push({ri, round:rd.number, table:pg.table||0, pg});
+    });
+  });
+  return out;
+}
+function shortMatchLabel(pg){ return pg.p2===null ? `${pname(pg.p1)} (bye)` : `${pname(pg.p1)} vs ${pname(pg.p2)}`; }
+function resultLine(pg){
+  const cfg=state.settings, r=pg.result||{};
+  if(pg.p2===null){
+    const t=r.byeType||"pairing";
+    const pts={pairing:cfg.byePoints, full:1, half:0.5, zero:0}[t];
+    const lbl={pairing:"bye",full:"full-point bye",half:"half-point bye",zero:"zero-point bye"}[t]||"bye";
+    return `${pname(pg.p1)} — ${lbl} (+${pts})`;
+  }
+  if(r.forfeit){
+    if(r.winner==="p1") return `${pname(pg.p1)} def. ${pname(pg.p2)} (forfeit)`;
+    if(r.winner==="p2") return `${pname(pg.p2)} def. ${pname(pg.p1)} (forfeit)`;
+    return `${pname(pg.p1)} vs ${pname(pg.p2)} — double forfeit`;
+  }
+  if(!r.winner) return `${pname(pg.p1)} vs ${pname(pg.p2)} — pending`;
+  if(cfg.trackSpread && r.score1!=null && r.score2!=null)
+    return `${pname(pg.p1)} ${r.score1}–${r.score2} ${pname(pg.p2)}`;
+  if(r.winner==="draw") return `${pname(pg.p1)} ½–½ ${pname(pg.p2)}`;
+  return r.winner==="p1" ? `${pname(pg.p1)} def. ${pname(pg.p2)}` : `${pname(pg.p2)} def. ${pname(pg.p1)}`;
+}
+function formatResults(uptoIdx){
+  const flat=flatMatches();
+  if(!flat.length) return `${state.name}\n(no matches yet)`;
+  const end=Math.max(0, Math.min(uptoIdx, flat.length-1));
+  const lines=[state.name, fmtDate(state.created), ""];
+  let curRound=null;
+  for(let i=0;i<=end;i++){
+    const m=flat[i];
+    if(m.round!==curRound){ if(curRound!==null) lines.push(""); lines.push(`Round ${m.round}`); curRound=m.round; }
+    lines.push(`  ${m.table}. ${resultLine(m.pg)}`);
+  }
+  return lines.join("\n");
+}
+async function writeClipboard(text){
+  try{ if(navigator.clipboard && navigator.clipboard.writeText){ await navigator.clipboard.writeText(text); return true; } }catch(e){}
+  try{
+    const ta=document.createElement("textarea"); ta.value=text;
+    ta.style.position="fixed"; ta.style.top="-1000px"; ta.style.opacity="0";
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    const ok=document.execCommand("copy"); document.body.removeChild(ta); return ok;
+  }catch(e){ return false; }
+}
+function manualCopyFallback(text){
+  const ov=document.createElement("div");
+  ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.4);display:grid;place-items:center;z-index:9999;padding:20px";
+  ov.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-card);box-shadow:0 12px 40px rgba(0,0,0,.28);padding:16px;max-width:540px;width:100%">
+    <div style="font-weight:var(--weight-semibold);margin-bottom:6px">Copy results</div>
+    <div class="note" style="margin-bottom:8px">Automatic copy was blocked here — select all and copy (Ctrl/Cmd + C).</div>
+    <textarea readonly rows="12" style="width:100%;font-family:var(--font-mono);font-size:var(--text-xs)"></textarea>
+    <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn primary sm" data-close>Done</button></div>
+  </div>`;
+  const ta=ov.querySelector("textarea"); ta.value=text;
+  ov.querySelector("[data-close]").onclick=()=>ov.remove();
+  ov.onclick=e=>{ if(e.target===ov) ov.remove(); };
+  document.body.appendChild(ov);
+  ta.focus(); ta.select();
+}
+async function copyResults(idx){
+  const text=formatResults(idx);
+  const ok=await writeClipboard(text);
+  if(ok){ if(state){ flash(`Copied ${idx+1} match${idx===0?"":"es"} to clipboard.`,"good"); render(); } }
+  else { manualCopyFallback(text); }
+}
+
+/* ==================================================================
    Rendering
    ================================================================== */
 function flash(msg,type){ state._flash={msg,type}; }
@@ -586,10 +738,46 @@ function statusbar(){
   const sb = document.getElementById("statusbar");
   const cur = state.rounds.length;
   const cell=(k,v)=>`<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+  const roundVal = state.settings.limitRounds ? `${cur} / ${state.settings.totalRounds}` : `${cur}`;
   sb.innerHTML =
     cell("Players", active) +
-    cell("Round", `${cur} / ${state.settings.totalRounds}`) +
+    cell("Round", roundVal) +
     cell("Status", cur===0?"Setup":(roundComplete(state.rounds[cur-1])?"Complete":"In play"));
+}
+
+function viewWelcome(){
+  const sessions = store.sessions.slice().sort((a,b)=>(b.updated||b.created||0)-(a.updated||a.created||0));
+  const rows = sessions.map(s=>{
+    const nR=(s.rounds||[]).length, nP=(s.players||[]).length;
+    return `<div class="sess">
+      <div class="meta">
+        <div class="snm">${esc(s.name)}</div>
+        <div class="sdt">${fmtDate(s.created)} · ${nP} player${nP===1?"":"s"} · ${nR} round${nR===1?"":"s"}</div>
+      </div>
+      <div class="sact">
+        <button class="btn primary sm" data-sopen="${s.id}">Open</button>
+        <button class="btn ghost sm" data-srename="${s.id}">Rename</button>
+        <button class="btn danger sm" data-sdel="${s.id}">Delete</button>
+      </div>
+    </div>`;
+  }).join("");
+  const nw=new Date();
+  const today = `${nw.getFullYear()}-${String(nw.getMonth()+1).padStart(2,"0")}-${String(nw.getDate()).padStart(2,"0")}`;
+  return `<div class="card">
+    <h2>New tournament</h2>
+    <div class="row" style="align-items:flex-end;gap:12px">
+      <label class="fld" style="flex:1;min-width:180px">Name<input id="newName" placeholder="e.g. Club Championship"></label>
+      <label class="fld">Date<input id="newDate" type="date" value="${today}"></label>
+      <button class="btn primary" id="createSess">Create</button>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn ghost sm" id="welImport">Import from file…</button>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Your tournaments <span class="hint">${sessions.length} saved</span></h2>
+    ${sessions.length?`<div class="sesslist">${rows}</div>`:`<div class="empty">No tournaments yet — create one above to begin.</div>`}
+  </div>`;
 }
 
 function viewPlayers(){
@@ -685,7 +873,7 @@ function viewPairings(){
   const reqCount = state.players.filter(p=>p.active!==false && p.byeRequest).length;
   let head = `<div class="card"><div class="toolbar">`;
   const canStart = cur===0 || roundComplete(state.rounds[cur-1]);
-  const reachedMax = cur>=state.settings.totalRounds;
+  const reachedMax = state.settings.limitRounds && cur>=state.settings.totalRounds;
   head += `<button class="btn primary" id="genRound" ${canStart && !reachedMax?"":"disabled"}>
       ${cur===0?"Generate Round 1":"Generate Round "+(cur+1)}</button>`;
   if(cur>0){
@@ -693,6 +881,15 @@ function viewPairings(){
     head += `<button class="btn danger" id="delRound">Delete last round</button>`;
   }
   head += `</div>`;
+  if(cur>0){
+    const flat = flatMatches();
+    const opts = flat.map((m,i)=>`<option value="${i}" ${i===flat.length-1?"selected":""}>R${m.round} B${m.table}: ${esc(shortMatchLabel(m.pg))}</option>`).join("");
+    head += `<div class="toolbar copybar">
+      <span class="pill">Copy results up to</span>
+      <select id="copyUpto">${opts}</select>
+      <button class="btn sm" id="copyBtn">Copy to clipboard</button>
+    </div>`;
+  }
   if(state._flash){ head += `<div class="banner ${state._flash.type}">${esc(state._flash.msg)}</div>`; state._flash=null; }
   if(reqCount) head += `<div class="banner info">${reqCount} player(s) requested a half-point bye — they'll sit out the next round.</div>`;
   if(cur>0 && !canStart) head += `<div class="banner warn">Enter all results for round ${cur} before pairing the next.</div>`;
@@ -807,10 +1004,15 @@ function viewSettings(){
     <h2>Tournament</h2>
     <div class="row" style="gap:14px">
       <label class="fld">Name<input id="setName" value="${esc(state.name)}" style="min-width:220px"></label>
-      <label class="fld">Total rounds<input id="setRounds" type="number" min="1" value="${c.totalRounds}"></label>
       <label class="fld">Round 1 pairing
         <select id="setR1">${opt("fold",c.round1,"Fold (rating: top vs bottom)")}${opt("adjacent",c.round1,"Adjacent (1v2, 3v4)")}${opt("random",c.round1,"Random")}</select>
       </label>
+    </div>
+    <div class="checks" style="margin-top:12px">
+      ${chk("limitRounds","Limit number of rounds","Cap the event at a set number of rounds. When off, you can keep generating rounds indefinitely.")}
+    </div>
+    <div class="row" style="gap:14px;margin-top:10px">
+      <label class="fld">Rounds cap<input id="setRounds" type="number" min="${c.limitRounds?Math.max(1,state.rounds.length):1}" value="${c.totalRounds}" ${c.limitRounds?"":"disabled"}></label>
     </div>
     <hr class="sep">
     <h2>Scoring</h2>
@@ -832,18 +1034,28 @@ function viewSettings(){
     <h2>Danger zone</h2>
     <div class="row">
       <button class="btn danger" id="resetRounds">Clear all rounds</button>
-      <button class="btn danger" id="resetAll">Reset everything</button>
+      <button class="btn danger" id="resetAll">Reset tournament</button>
     </div>
   </div>`;
 }
 
 function render(){
+  const onWelcome = !state;
+  document.body.classList.toggle("welcome", onWelcome);
+  const v=document.getElementById("view");
+  if(onWelcome){
+    document.getElementById("tname").textContent = "Swiss Pairing";
+    document.getElementById("tsub").textContent = "Choose or create a tournament";
+    v.innerHTML = viewWelcome();
+    wireWelcome();
+    return;
+  }
   document.getElementById("tname").textContent = state.name;
   document.getElementById("tsub").textContent =
-    `${state.settings.totalRounds}-round Swiss${state.settings.trackSpread?" · spread tracked":""}`;
+    (state.settings.limitRounds ? `${state.settings.totalRounds}-round Swiss` : "Swiss tournament")
+    + (state.settings.trackSpread?" · spread tracked":"");
   statusbar();
   document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("active", b.dataset.tab===activeTab));
-  const v=document.getElementById("view");
   v.innerHTML = activeTab==="players"?viewPlayers()
     : activeTab==="pairings"?viewPairings()
     : activeTab==="standings"?viewStandings()
@@ -865,6 +1077,18 @@ function moveTb(k,dir){
   const j = dir==="up"?i-1:i+1; if(j<0||j>=order.length) return;
   [order[i],order[j]]=[order[j],order[i]];
   state.settings.tbOrder=order; save(); render();
+}
+function wireWelcome(){
+  const $=s=>document.getElementById(s);
+  $("createSess").onclick=()=>createSession($("newName").value, $("newDate").value);
+  $("newName").onkeydown=e=>{ if(e.key==="Enter") $("createSess").click(); };
+  $("welImport").onclick=()=>document.getElementById("fileImport").click();
+  document.querySelectorAll("[data-sopen]").forEach(b=> b.onclick=()=>openSession(Number(b.dataset.sopen)));
+  document.querySelectorAll("[data-srename]").forEach(b=> b.onclick=()=>renameSession(Number(b.dataset.srename)));
+  document.querySelectorAll("[data-sdel]").forEach(b=> b.onclick=()=>{
+    const id=Number(b.dataset.sdel), s=store.sessions.find(x=>x.id===id);
+    if(confirm(`Delete "${s?s.name:"this tournament"}"? This cannot be undone.`)) deleteSession(id);
+  });
 }
 function wire(){
   const $ = s=>document.getElementById(s);
@@ -903,6 +1127,7 @@ function wire(){
     document.querySelectorAll('[data-act="score"]').forEach(inp=> inp.onchange=()=>setScore(+inp.dataset.r,+inp.dataset.p,inp.dataset.w,inp.value));
     document.querySelectorAll('[data-act="special"]').forEach(s=> s.onchange=()=>setSpecial(+s.dataset.r,+s.dataset.p,s.value));
     document.querySelectorAll('[data-act="byetype"]').forEach(s=> s.onchange=()=>setByeType(+s.dataset.r,+s.dataset.p,s.value));
+    if($("copyBtn")) $("copyBtn").onclick=()=>{ const sel=$("copyUpto"); copyResults(sel?Number(sel.value):flatMatches().length-1); };
   }
 
   if(activeTab==="standings"){
@@ -913,16 +1138,20 @@ function wire(){
 
   if(activeTab==="settings"){
     $("setName").onchange=e=>{ state.name=e.target.value||"My Tournament"; save(); render(); };
-    $("setRounds").onchange=e=>{ state.settings.totalRounds=Math.max(1,Number(e.target.value)||1); save(); render(); };
+    $("setRounds").onchange=e=>{ const mn=state.settings.limitRounds?Math.max(1,state.rounds.length):1; state.settings.totalRounds=Math.max(mn,Number(e.target.value)||1); save(); render(); };
     $("setR1").onchange=e=>{ state.settings.round1=e.target.value; save(); };
     $("setByeP").onchange=e=>{ state.settings.byePoints=Number(e.target.value)||0; save(); render(); };
     $("setByeS").onchange=e=>{ state.settings.byeSpread=Number(e.target.value)||0; save(); render(); };
-    document.querySelectorAll("[data-set]").forEach(cb=> cb.onchange=()=>{ state.settings[cb.dataset.set]=cb.checked; save(); render(); });
+    document.querySelectorAll("[data-set]").forEach(cb=> cb.onchange=()=>{
+      state.settings[cb.dataset.set]=cb.checked;
+      if(cb.dataset.set==="limitRounds" && cb.checked && state.settings.totalRounds < state.rounds.length) state.settings.totalRounds = state.rounds.length;
+      save(); render();
+    });
     document.querySelectorAll("[data-tbmove]").forEach(b=> b.onclick=()=>moveTb(b.dataset.k,b.dataset.tbmove));
     document.querySelectorAll("[data-tbremove]").forEach(b=> b.onclick=()=>{ state.settings.tbOrder=effectiveTbOrder().filter(k=>k!==b.dataset.tbremove); save(); render(); });
     document.querySelectorAll("[data-tbadd]").forEach(b=> b.onclick=()=>{ state.settings.tbOrder=[...effectiveTbOrder(), b.dataset.tbadd]; save(); render(); });
     $("resetRounds").onclick=()=>{ if(confirm("Clear all rounds and results? Players are kept.")){ state.rounds=[]; state._viewRound=null; save(); render(); } };
-    $("resetAll").onclick=()=>{ if(confirm("Erase everything and start over?")){ state=freshState(); save(); render(); } };
+    $("resetAll").onclick=()=>{ if(confirm("Reset this tournament — erase its players, rounds and settings?")){ state.players=[]; state.rounds=[]; state.nextId=1; state.settings={...DEFAULT_SETTINGS}; state._viewRound=null; save(); render(); } };
   }
 }
 
@@ -943,18 +1172,23 @@ function exportStandingsCSV(){
   const csv=[head,...rows].map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
   download((state.name||"standings")+"-standings.csv",csv,"text/csv");
 }
-document.getElementById("btnExport").onclick=()=>download((state.name||"tournament")+".json",JSON.stringify(state,null,2));
+document.getElementById("btnSessions").onclick=closeSession;
+document.getElementById("btnExport").onclick=()=>{ if(state) download((state.name||"tournament")+".json",JSON.stringify(state,null,2)); };
 document.getElementById("btnImport").onclick=()=>document.getElementById("fileImport").click();
 document.getElementById("fileImport").onchange=e=>{
   const f=e.target.files[0]; if(!f) return;
   const rd=new FileReader();
-  rd.onload=()=>{ try{ const s=JSON.parse(rd.result); s.settings={...DEFAULT_SETTINGS,...(s.settings||{})}; state=s; activeTab="standings"; save(); render(); }catch(err){ alert("Invalid file."); } };
+  rd.onload=()=>{ try{
+    const t=normalizeSession({...JSON.parse(rd.result), id: store.nextSessionId++});
+    store.sessions.push(t); store.currentId=t.id; state=t; activeTab="standings"; save(); render();
+  }catch(err){ alert("Invalid file."); } };
   rd.readAsText(f);
+  e.target.value="";
 };
 
 /* ---------------- Boot ---------------- */
 document.querySelectorAll("#tabs button").forEach(b=>{
-  b.onclick=()=>{ activeTab=b.dataset.tab; state._viewRound=null; render(); };
+  b.onclick=()=>{ activeTab=b.dataset.tab; if(state) state._viewRound=null; render(); };
 });
 render();
 </script>
