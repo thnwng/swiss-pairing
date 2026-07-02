@@ -3,7 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- Hardening: no external connections except the design-system fonts; blocks exfiltration even if markup injection were ever possible. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta name="description" content="Swiss-system tournament pairing manager — pairings, results, FIDE-verified tiebreaks, standings and crosstable. Runs entirely in your browser.">
 <title>Swiss Pairing — Tournament Manager</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23496175'/%3E%3Ctext x='32' y='44' font-family='Arial,Helvetica,sans-serif' font-size='36' font-weight='800' fill='%23fff' text-anchor='middle'%3ES%3C/text%3E%3C/svg%3E">
 
 <!-- Set the theme from the OS color scheme BEFORE first paint (no FOUC).
      Accent is left unset → Halcyon defaults to "slate". -->
@@ -80,7 +84,7 @@ button.btn.sm{height:var(--control-sm);padding:0 10px;font-size:var(--text-xs)}
 table{width:100%;border-collapse:collapse;font-size:var(--text-sm)}
 th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--border-subtle)}
 th{font-family:var(--font-mono);font-size:var(--text-2xs);text-transform:uppercase;letter-spacing:var(--tracking-wider);
-  color:var(--text-faint);font-weight:var(--weight-medium);border-bottom:1px solid var(--border);white-space:nowrap}
+  color:var(--text-muted);font-weight:var(--weight-medium);border-bottom:1px solid var(--border);white-space:nowrap}
 td.num,th.num{text-align:center}
 tr:last-child td{border-bottom:0}
 .tag{display:inline-block;font-family:var(--font-mono);font-size:var(--text-2xs);font-weight:var(--weight-medium);
@@ -116,7 +120,7 @@ tr:last-child td{border-bottom:0}
 .check input{margin-top:2px;height:auto}
 .check .desc{color:var(--text-muted);font-size:var(--text-xs);display:block}
 .rank{font-family:var(--font-mono);font-weight:var(--weight-bold);color:var(--text-faint);width:24px;text-align:center}
-.firsttag{font-family:var(--font-mono);font-size:var(--text-2xs);color:var(--text-faint);border:1px solid var(--border);border-radius:var(--radius-xs);padding:0 4px}
+.firsttag{font-family:var(--font-mono);font-size:var(--text-2xs);color:var(--text-muted);border:1px solid var(--border-strong);border-radius:var(--radius-xs);padding:0 4px}
 .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
 .inactive{opacity:.55}
 .kbd{font-family:var(--font-mono);background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius-xs);padding:1px 5px;font-size:var(--text-xs)}
@@ -141,6 +145,12 @@ table.cx td.cell{text-align:center;font-variant-numeric:tabular-nums;min-width:4
 /* remove the up/down spinners on the score boxes */
 .scorein::-webkit-outer-spin-button,.scorein::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .scorein{-moz-appearance:textfield;appearance:textfield}
+/* visually hidden but announced by screen readers (live status region) */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+/* 16px controls on touch devices so iOS Safari doesn't auto-zoom on focus */
+@media (hover:none) and (pointer:coarse){
+  input,select,textarea{font-size:16px!important}
+}
 /* copy-results toolbar */
 .copybar{margin-top:-4px}
 .copybar select{max-width:min(60vw,340px)}
@@ -161,8 +171,22 @@ body.welcome #hdrActions,body.welcome nav.tabs,body.welcome .statusbar{display:n
   .pairing .vs{display:none}
 }
 @media print{
-  nav.tabs,header.app .spacer,.toolbar,button,.statusbar{display:none!important}
+  nav.tabs,header.app .spacer,.toolbar,button,.statusbar,select,.copybar,.banner{display:none!important}
   body{background:#fff;color:var(--neutral-900)} .card{box-shadow:none;border:1px solid var(--neutral-300)}
+  /* force light-theme token values so dark-mode prints stay readable on paper */
+  [data-theme="dark"]{--text:#26251F;--text-muted:#6E6C62;--text-faint:#A19E92;
+    --success-text:#3F7253;--warning-text:#8A6228;--danger-text:#9A463C;--info-text:#3F6E93;--accent-text:#496175;
+    --surface:#FFFFFF;--bg-subtle:#F4F4F1;--bg-sunken:#ECEBE6;
+    --border:#E2E1DB;--border-subtle:#ECEBE6;--border-strong:#C3C0B6}
+  /* crosstable: never clip columns on paper — let it wrap/shrink instead */
+  .cxwrap{overflow:visible}
+  table.cx{white-space:normal;font-size:10px}
+  table.cx th,table.cx td{padding:3px 4px}
+  table.cx td.cell{min-width:0}
+  /* pairing sheet: winner readable in grayscale, first-move tag crisp */
+  .pairing.win-l .left,.pairing.win-r .right{font-weight:800}
+  .win-dot{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .firsttag{color:var(--neutral-700)}
 }
 </style>
 </head>
@@ -184,9 +208,10 @@ body.welcome #hdrActions,body.welcome nav.tabs,body.welcome .statusbar{display:n
   </header>
 
   <div class="statusbar" id="statusbar"></div>
+  <div id="sr-status" role="status" aria-live="polite" class="sr-only"></div>
 
-  <nav class="tabs" id="tabs">
-    <button data-tab="players" class="active">Players</button>
+  <nav class="tabs" id="tabs" aria-label="Views">
+    <button data-tab="players" class="active" aria-current="page">Players</button>
     <button data-tab="pairings">Pairings</button>
     <button data-tab="standings">Standings</button>
     <button data-tab="crosstable">Crosstable</button>
@@ -228,25 +253,70 @@ const round2 = x => Math.round((x + Number.EPSILON) * 100) / 100;
    (name + created date + players/rounds/settings).  `state` points at
    the currently-open session, or is null on the welcome screen.
    ------------------------------------------------------------------ */
+/* Deep-coerce a session to expected types. This is the trust boundary for
+   imported JSON and hand-edited storage: every value that later reaches
+   innerHTML or arithmetic is forced into a safe shape here. */
 function normalizeSession(t){
   t = t || {};
+  const num = (v,d)=>{ const n=Number(v); return Number.isFinite(n)?n:d; };
+  const players = (Array.isArray(t.players)?t.players:[]).map(p=>{
+    p = p || {};
+    const out = {
+      id: num(p.id, 0),
+      name: String(p.name ?? "?"),
+      rating: (p.rating==null || p.rating==="") ? null : num(p.rating, null),
+      active: p.active !== false,
+    };
+    if(p.byeRequest) out.byeRequest = true;
+    return out;
+  });
+  const BYE_TYPES = {pairing:1, full:1, half:1, zero:1};
+  const WINNERS = {p1:1, p2:1, draw:1};
+  const rounds = (Array.isArray(t.rounds)?t.rounds:[]).filter(r=>r && Array.isArray(r.pairings)).map((r,i)=>{
+    const rd = {
+      number: num(r.number, i+1),
+      pairings: r.pairings.filter(pg=>pg && pg.p1!=null).map((pg,j)=>{
+        const res = pg.result || {};
+        return {
+          p1: num(pg.p1, 0),
+          p2: pg.p2==null ? null : num(pg.p2, 0),
+          table: num(pg.table, j+1),
+          result: pg.p2==null
+            ? {byeType: BYE_TYPES[res.byeType] ? res.byeType : "pairing"}
+            : {winner: WINNERS[res.winner] ? res.winner : null,
+               forfeit: res.forfeit === true,
+               score1: res.score1==null ? null : num(res.score1, null),
+               score2: res.score2==null ? null : num(res.score2, null)},
+        };
+      }),
+    };
+    if(Array.isArray(r.byeRequests)) rd.byeRequests = r.byeRequests.map(x=>num(x,0));
+    return rd;
+  });
+  const settings = {...DEFAULT_SETTINGS, ...(t.settings && typeof t.settings==="object" ? t.settings : {})};
+  settings.totalRounds = Math.max(1, num(settings.totalRounds, DEFAULT_SETTINGS.totalRounds));
+  settings.byePoints = num(settings.byePoints, DEFAULT_SETTINGS.byePoints);
+  settings.byeSpread = num(settings.byeSpread, DEFAULT_SETTINGS.byeSpread);
+  settings.round1 = ({fold:1,adjacent:1,random:1})[settings.round1] ? settings.round1 : "fold";
+  settings.tbOrder = Array.isArray(settings.tbOrder) ? settings.tbOrder.map(String) : null;
+  ["trackSpread","drawAllowed","firstBalance","limitRounds"].forEach(k=> settings[k] = !!settings[k]);
   return {
-    id: t.id,
-    name: t.name || "My Tournament",
-    created: t.created || Date.now(),
-    updated: t.updated || t.created || Date.now(),
-    players: t.players || [],
-    rounds: t.rounds || [],
-    nextId: t.nextId || 1,
-    settings: {...DEFAULT_SETTINGS, ...(t.settings||{})},
+    id: t.id==null ? null : num(t.id, null),
+    name: String(t.name || "My Tournament"),
+    created: num(t.created, Date.now()),
+    updated: num(t.updated, num(t.created, Date.now())),
+    players, rounds,
+    nextId: Math.max(num(t.nextId, 1), 1, ...players.map(p=>p.id+1)),
+    settings,
   };
 }
 function loadStore(){
+  let raw = null, old = null;
   try{
-    const raw = localStorage.getItem(LS_KEY);
+    raw = localStorage.getItem(LS_KEY);
     if(raw){
       const s = JSON.parse(raw);
-      s.sessions = (s.sessions||[]).map(normalizeSession);
+      s.sessions = (Array.isArray(s.sessions)?s.sessions:[]).map(normalizeSession);
       let mx = 0; s.sessions.forEach(x=>{ if(typeof x.id==="number" && x.id>mx) mx=x.id; });
       s.nextSessionId = Math.max(Number(s.nextSessionId)||0, mx+1);
       s.sessions.forEach(x=>{ if(x.id==null) x.id = s.nextSessionId++; });
@@ -254,21 +324,30 @@ function loadStore(){
       return s;
     }
     // migrate a legacy single-tournament save into one session
-    const old = localStorage.getItem(OLD_KEY);
+    old = localStorage.getItem(OLD_KEY);
     if(old){
       const t = normalizeSession({...JSON.parse(old), id:1});
       return {sessions:[t], currentId:null, nextSessionId:2};
     }
-  }catch(e){}
+  }catch(e){
+    // keep the unreadable payload so it can be recovered manually, then start clean
+    const bad = raw || old;
+    if(bad){
+      try{ localStorage.setItem(LS_KEY + ".corrupt", bad); }catch(_){}
+      setTimeout(()=>alert("Your saved tournament data could not be read. A backup copy was kept in this browser's local storage under \"" + LS_KEY + ".corrupt\"."), 0);
+    }
+  }
   return {sessions:[], currentId:null, nextSessionId:1};
 }
 let store = loadStore();
 let state = store.currentId!=null ? store.sessions.find(s=>s.id===store.currentId) : null;
 let activeTab = "players";
 
+let saveFailed = false;
 function save(){
   if(state) state.updated = Date.now();
-  try{ localStorage.setItem(LS_KEY, JSON.stringify(store)); }catch(e){}
+  try{ localStorage.setItem(LS_KEY, JSON.stringify(store)); saveFailed = false; }
+  catch(e){ saveFailed = true; }
 }
 
 function createSession(name, dateVal){
@@ -316,7 +395,10 @@ const TB_DEFS = {
   rating:     {label:"Rating", title:"Higher rating ranks higher"},
 };
 function effectiveTbOrder(){
-  if(Array.isArray(state.settings.tbOrder) && state.settings.tbOrder.length) return state.settings.tbOrder;
+  const o = state.settings.tbOrder;
+  // explicit array (even empty = "no tiebreaks") is honoured; unknown keys
+  // from imported/hand-edited files are dropped so they can't crash render.
+  if(Array.isArray(o)) return o.filter(k=>Object.prototype.hasOwnProperty.call(TB_DEFS, k));
   return state.settings.trackSpread
     ? ["spread","buchholz","sb","cumulative"]
     : ["bhCut1","buchholz","sb","cumulative"];
@@ -371,14 +453,19 @@ function buildLogs(){
     return m;
   });
 
+  // Cover current roster PLUS every id that appears in any round, so a
+  // deleted player's history keeps feeding opponents' Buchholz/SB (they are
+  // treated like a withdrawal; they never appear in standings themselves).
   const logs = {};
-  state.players.forEach(p=>{
+  const allIds = new Set(state.players.map(p=>p.id));
+  perRound.forEach(m=> Object.keys(m).forEach(k=> allIds.add(Number(k))));
+  allIds.forEach(id=>{
     let first=-1, last=-1;
-    perRound.forEach((m,i)=>{ if(m[p.id]!==undefined){ if(first<0) first=i; last=i; } });
+    perRound.forEach((m,i)=>{ if(m[id]!==undefined){ if(first<0) first=i; last=i; } });
     const arr=[];
     if(first>=0){
       for(let i=first;i<perRound.length;i++){
-        const e = perRound[i][p.id];
+        const e = perRound[i][id];
         if(e===undefined){ // genuinely not in this round -> absence (voluntary unplayed)
           arr.push({round:i+1, oppId:null, pts:0, played:false, voluntary:true, result:"L", spread:0, kind:"absent"});
         } else if(e==="pending"){
@@ -388,7 +475,7 @@ function buildLogs(){
         }
       }
     }
-    logs[p.id]=arr;
+    logs[id]=arr;
   });
   return logs;
 }
@@ -438,7 +525,8 @@ function tiebreakEngine(logs){
   ids.forEach(id=>{
     const L=logs[id], sP=score[id];
     const rounds = L.filter(scored).map(g=>{
-      const sig = g.played ? adj[g.oppId] : sP;
+      // ?? 0 guards inconsistent imported data (opponent id in no round map)
+      const sig = g.played ? (adj[g.oppId] ?? 0) : sP;
       return {sig, isVUR: !g.played && g.voluntary, bh:sig, sb:g.pts*sig};
     });
     const bh = sum(rounds.map(r=>r.bh));
@@ -477,33 +565,37 @@ function computeStats(){
       opponents, log:L, firstCount:0,
       buchholz: t.buchholz||0, bhCut1: t.bhCut1||0, sb: t.sb||0, sbCut1: t.sbCut1||0};
   });
-  // who went first (for colour/first balancing) — count p1 of any decided non-bye game
+  // who went first (for colour/first balancing) — count p1 of any played,
+  // decided non-bye game; forfeits are unplayed so they don't use up a "first"
   state.rounds.forEach(rd=> rd.pairings.forEach(pg=>{
     if(pg.p2===null) return;
-    if(pg.result && (pg.result.winner || pg.result.forfeit) && S[pg.p1]) S[pg.p1].firstCount++;
+    if(pg.result && pg.result.winner && !pg.result.forfeit && S[pg.p1]) S[pg.p1].firstCount++;
   }));
   return S;
 }
 
-/* ---------------- Standings ---------------- */
-function h2h(a, b){ // negative if a should rank above b
-  let r=0;
-  (a.s.log||[]).forEach(g=>{ if(g.kind==="game" && g.oppId===b.p.id){ r += g.result==="W"?-1 : g.result==="L"?1 : 0; } });
-  return r;
-}
-function cmpTb(A, B, key){
+/* ---------------- Standings ----------------
+   Ranking is group-wise refinement, not a pairwise comparator: partition by
+   points, then refine each still-tied group criterion by criterion. This
+   keeps head-to-head transitive (FIDE "direct encounter" mini-score within
+   the tied group; circular ties stay tied and fall through). */
+function tbValue(e, key){
   switch(key){
-    case "spread": return B.s.spread - A.s.spread;
-    case "buchholz": return B.s.buchholz - A.s.buchholz;
-    case "bhCut1": return B.s.bhCut1 - A.s.bhCut1;
-    case "sb": return B.s.sb - A.s.sb;
-    case "sbCut1": return B.s.sbCut1 - A.s.sbCut1;
-    case "cumulative": return B.s.cumulative - A.s.cumulative;
-    case "wins": return B.s.wins - A.s.wins;
-    case "rating": return (B.p.rating||0) - (A.p.rating||0);
-    case "headToHead": return h2h(A,B);
+    case "spread": return e.s.spread;
+    case "buchholz": return e.s.buchholz;
+    case "bhCut1": return e.s.bhCut1;
+    case "sb": return e.s.sb;
+    case "sbCut1": return e.s.sbCut1;
+    case "cumulative": return e.s.cumulative;
+    case "wins": return e.s.wins;
+    case "rating": return e.p.rating||0;
     default: return 0;
   }
+}
+function partitionDesc(arr, val){ // stable partition into groups by value, descending
+  const m = new Map();
+  arr.forEach(e=>{ const v=val(e); if(!m.has(v)) m.set(v,[]); m.get(v).push(e); });
+  return [...m.entries()].sort((a,b)=>b[0]-a[0]).map(en=>en[1]);
 }
 function standings(){
   const S = computeStats();
@@ -511,12 +603,26 @@ function standings(){
     .filter(p=> p.active!==false || (S[p.id] && S[p.id].log.length))
     .map(p=>({p, s:S[p.id]}));
   const order = effectiveTbOrder();
-  list.sort((A,B)=>{
-    if(B.s.points !== A.s.points) return B.s.points - A.s.points;
-    for(const k of order){ const d = cmpTb(A,B,k); if(d) return d; }
-    return (B.p.rating||0)-(A.p.rating||0) || A.p.name.localeCompare(B.p.name);
-  });
-  return {list, S, order};
+  let groups = partitionDesc(list, e=>e.s.points);
+  for(const k of order){
+    groups = groups.flatMap(g=>{
+      if(g.length<2) return [g];
+      if(k==="headToHead"){
+        const ids = new Set(g.map(e=>e.p.id));
+        const mini = new Map(); // points scored in decided games vs the tied group
+        g.forEach(e=>{
+          let m=0;
+          (e.s.log||[]).forEach(gm=>{ if(gm.kind==="game" && ids.has(gm.oppId)) m+=gm.pts; });
+          mini.set(e.p.id, m);
+        });
+        return partitionDesc(g, e=>mini.get(e.p.id));
+      }
+      return partitionDesc(g, e=>tbValue(e,k));
+    });
+  }
+  const flat = groups.flatMap(g=> g.slice().sort((A,B)=>
+    (B.p.rating||0)-(A.p.rating||0) || A.p.name.localeCompare(B.p.name)));
+  return {list: flat, S, order};
 }
 
 /* ==================================================================
@@ -526,6 +632,11 @@ function pickBye(active, S){
   const noBye = active.filter(p=> S[p.id].byes===0);
   const pool = noBye.length ? noBye : active.slice();
   pool.sort((a,b)=> S[a.id].points-S[b.id].points || (a.rating||0)-(b.rating||0));
+  // prefer the lowest-ranked eligible candidate whose removal still lets the
+  // rest be paired without rematches; fall back to the plain lowest.
+  for(const cand of pool){
+    if(matchPairs(active.filter(p=>p!==cand), S, false)) return cand;
+  }
   return pool[0];
 }
 function foldPair(arr){
@@ -570,9 +681,15 @@ function matchPairs(players, S, allowRematch){
 }
 
 function generateNextRound(){
+  // hard guard: never pair on incomplete data — a pending game in ANY round
+  // drops points from seeding and its pair from the rematch-avoidance set
+  const bad = state.rounds.find(rd=>!roundComplete(rd));
+  if(bad){ alert(`Round ${bad.number} still has unfinished results — enter them before pairing the next round.`); return; }
   const roundNum = state.rounds.length+1;
   const cfg = state.settings;
   const S = computeStats();
+  // stale bye requests of withdrawn players never fire silently on reinstate
+  state.players.forEach(p=>{ if(p.active===false) delete p.byeRequest; });
   let active = state.players.filter(p=>p.active!==false);
   if(active.length<2){ alert("Need at least 2 active players."); return; }
 
@@ -615,11 +732,12 @@ function generateNextRound(){
   requested.forEach(p=> pairings.push({p1:p.id, p2:null, result:{byeType:"half"}}));
   pairings.forEach((pg,i)=>pg.table=i+1);
 
-  // clear bye requests now they're satisfied
+  // clear bye requests now they're satisfied; remember them on the round so
+  // deleting the round restores them (regeneration honours them again)
   requested.forEach(p=> delete p.byeRequest);
 
-  state.rounds.push({number:roundNum, pairings});
-  activeTab="pairings"; state._viewRound=null; save(); render();
+  state.rounds.push({number:roundNum, pairings, byeRequests: requested.map(p=>p.id)});
+  activeTab="pairings"; state._viewRound=null; delete state._editPairs; save(); render();
 }
 
 function roundComplete(rd){
@@ -627,9 +745,33 @@ function roundComplete(rd){
 }
 
 /* ---------------- Result entry ---------------- */
+// Re-render without stealing focus: defer past the native focus transition
+// (change fires before blur), then refocus the equivalent node in the new DOM.
+function renderPreservingFocus(){
+  setTimeout(()=>{
+    const ae = document.activeElement;
+    let sel = null;
+    if(ae){
+      if(ae.dataset && ae.dataset.act==="score")
+        sel = `[data-act="score"][data-r="${ae.dataset.r}"][data-p="${ae.dataset.p}"][data-w="${ae.dataset.w}"]`;
+      else if(ae.id) sel = "#"+ae.id;
+    }
+    render();
+    if(sel){
+      const el = document.querySelector(sel);
+      if(el){ el.focus(); if(el.select && el.tagName!=="SELECT") el.select(); }
+    }
+  }, 0);
+}
 function setResult(rIdx,pIdx,winner){
   const pg = state.rounds[rIdx].pairings[pIdx];
   pg.result.forfeit=false; pg.result.winner = winner;
+  // drop leftover scores that contradict the chosen winner (stale-spread guard)
+  const {score1,score2}=pg.result;
+  if(score1!=null && score2!=null){
+    const implied = score1>score2?"p1":score2>score1?"p2":"draw";
+    if(implied!==winner) pg.result.score1=pg.result.score2=null;
+  }
   save(); render();
 }
 function setScore(rIdx,pIdx,which,val){
@@ -637,9 +779,10 @@ function setScore(rIdx,pIdx,which,val){
   pg.result.forfeit=false;
   pg.result[which] = val===""?null:Number(val);
   const {score1,score2}=pg.result;
-  if(score1!=null && score2!=null) pg.result.winner = score1>score2?"p1":score2>score1?"p2":"draw";
-  else if(score1==null && score2==null) pg.result.winner=null;
-  save(); render();
+  // any missing score => no winner yet (a half-edited game is pending again)
+  pg.result.winner = (score1!=null && score2!=null)
+    ? (score1>score2?"p1":score2>score1?"p2":"draw") : null;
+  save(); renderPreservingFocus();
 }
 function setSpecial(rIdx,pIdx,mode){
   const pg = state.rounds[rIdx].pairings[pIdx]; const r=pg.result;
@@ -650,6 +793,29 @@ function setSpecial(rIdx,pIdx,mode){
   save(); render();
 }
 function setByeType(rIdx,pIdx,t){ state.rounds[rIdx].pairings[pIdx].result.byeType=t; save(); render(); }
+
+/* Manual pairing override: put newId into pairing[pIdx][slot]; the player
+   previously there moves to wherever newId came from (which may be the bye
+   seat, or the other slot of the same board = flip who goes first). Only
+   allowed while neither affected board has any result entered. */
+function swapPairSlot(rIdx, pIdx, slot, newId){
+  const rd = state.rounds[rIdx];
+  const dst = rd.pairings[pIdx];
+  const oldId = dst[slot];
+  if(newId===oldId){ render(); return; }
+  let src=null, srcSlot=null;
+  rd.pairings.forEach(q=>{
+    if(q.p1===newId){ src=q; srcSlot="p1"; }
+    else if(q.p2===newId){ src=q; srcSlot="p2"; }
+  });
+  if(!src){ render(); return; }
+  if(!pairingResultEmpty(dst) || !pairingResultEmpty(src)){
+    flash("Can't swap: one of the affected boards already has a result entered.","warn");
+    render(); return;
+  }
+  dst[slot]=newId; src[srcSlot]=oldId;
+  save(); render();
+}
 
 /* ==================================================================
    Copy results to clipboard (up to a chosen match, with whatever
@@ -708,17 +874,25 @@ async function writeClipboard(text){
   }catch(e){ return false; }
 }
 function manualCopyFallback(text){
+  const prev = document.activeElement;
   const ov=document.createElement("div");
   ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.4);display:grid;place-items:center;z-index:9999;padding:20px";
-  ov.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-card);box-shadow:0 12px 40px rgba(0,0,0,.28);padding:16px;max-width:540px;width:100%">
+  ov.innerHTML=`<div role="dialog" aria-modal="true" aria-label="Copy results" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-card);box-shadow:0 12px 40px rgba(0,0,0,.28);padding:16px;max-width:540px;width:100%">
     <div style="font-weight:var(--weight-semibold);margin-bottom:6px">Copy results</div>
     <div class="note" style="margin-bottom:8px">Automatic copy was blocked here — select all and copy (Ctrl/Cmd + C).</div>
-    <textarea readonly rows="12" style="width:100%;font-family:var(--font-mono);font-size:var(--text-xs)"></textarea>
+    <textarea readonly rows="12" style="width:100%;font-family:var(--font-mono)"></textarea>
     <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn primary sm" data-close>Done</button></div>
   </div>`;
   const ta=ov.querySelector("textarea"); ta.value=text;
-  ov.querySelector("[data-close]").onclick=()=>ov.remove();
-  ov.onclick=e=>{ if(e.target===ov) ov.remove(); };
+  const done=ov.querySelector("[data-close]");
+  const close=()=>{ document.removeEventListener("keydown",onKey,true); ov.remove(); if(prev&&prev.focus) prev.focus(); };
+  const onKey=e=>{
+    if(e.key==="Escape"){ e.preventDefault(); close(); }
+    else if(e.key==="Tab"){ e.preventDefault(); (document.activeElement===ta?done:ta).focus(); } // 2-stop focus trap
+  };
+  document.addEventListener("keydown",onKey,true);
+  done.onclick=close;
+  ov.onclick=e=>{ if(e.target===ov) close(); };
   document.body.appendChild(ov);
   ta.focus(); ta.select();
 }
@@ -732,13 +906,18 @@ async function copyResults(idx){
 /* ==================================================================
    Rendering
    ================================================================== */
-function flash(msg,type){ state._flash={msg,type}; }
+function flash(msg,type){
+  if(state) state._flash={msg,type};
+  // mirror into the screen-reader live region (clear-then-set so repeats announce)
+  const el=document.getElementById("sr-status");
+  if(el){ el.textContent=""; setTimeout(()=>{ el.textContent=msg; },50); }
+}
 function statusbar(){
   const active = state.players.filter(p=>p.active!==false).length;
   const sb = document.getElementById("statusbar");
   const cur = state.rounds.length;
   const cell=(k,v)=>`<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
-  const roundVal = state.settings.limitRounds ? `${cur} / ${state.settings.totalRounds}` : `${cur}`;
+  const roundVal = state.settings.limitRounds ? `${cur} / ${esc(state.settings.totalRounds)}` : `${cur}`;
   sb.innerHTML =
     cell("Players", active) +
     cell("Round", roundVal) +
@@ -787,13 +966,14 @@ function viewPlayers(){
     const wd = p.active===false;
     return `<tr class="${wd?'inactive':''}">
       <td>${esc(p.name)} ${wd?'<span class="tag wd">withdrawn</span>':(p.byeRequest?'<span class="tag bye">bye next</span>':'')}</td>
-      <td class="num">${p.rating||"—"}</td>
+      <td class="num">${esc(p.rating||"—")}</td>
       <td class="num">${s.points}</td>
       <td class="num">${s.wins}-${s.losses}${s.draws?("-"+s.draws):""}${s.byes?` <span class="pill">(${s.byes}b)</span>`:""}</td>
       <td class="row" style="gap:4px;justify-content:flex-end">
         <button class="btn ghost sm" data-act="bye" data-id="${p.id}" title="request a half-point bye next round">${p.byeRequest?"Cancel bye":"Bye"}</button>
+        <button class="btn ghost sm" data-act="edit" data-id="${p.id}" title="edit name / rating">Edit</button>
         <button class="btn ghost sm" data-act="toggle" data-id="${p.id}">${wd?"Reinstate":"Withdraw"}</button>
-        <button class="btn danger sm" data-act="del" data-id="${p.id}">✕</button>
+        <button class="btn danger sm" data-act="del" data-id="${p.id}" aria-label="Delete ${esc(p.name)}" title="Delete ${esc(p.name)}">✕</button>
       </td></tr>`;
   }).join("");
   return `
@@ -820,62 +1000,97 @@ function viewPlayers(){
 
 function specialMode(r){ return !r.forfeit ? "none" : r.winner==="p1"?"p1" : r.winner==="p2"?"p2" : "double"; }
 
-function pairingRow(rIdx,pg,pIdx){
+function pairingResultEmpty(pg){
+  const r = pg.result||{};
+  return pg.p2===null || (!r.winner && !r.forfeit && r.score1==null && r.score2==null);
+}
+function isRematch(rIdx,pg){
+  if(pg.p2===null) return false;
+  return state.rounds.slice(0,rIdx).some(r2=>r2.pairings.some(q=>
+    (q.p1===pg.p1&&q.p2===pg.p2)||(q.p1===pg.p2&&q.p2===pg.p1)));
+}
+function pairingRow(rIdx,pg,pIdx,S,edit){
   const cfg=state.settings;
+  const ptsTag = id => (S && S[id]) ? ` <small>${S[id].points}</small>` : "";
+  const swappable = edit && pairingResultEmpty(pg);
+  const slotSel = (slot,cur)=>{
+    const ids=[]; state.rounds[rIdx].pairings.forEach(q=>{ ids.push(q.p1); if(q.p2!=null) ids.push(q.p2); });
+    return `<select class="special" data-swap="1" data-r="${rIdx}" data-p="${pIdx}" data-slot="${slot}" aria-label="replace player">
+      ${ids.map(id=>`<option value="${id}" ${id===cur?"selected":""}>${esc(pname(id))}</option>`).join("")}
+    </select>`;
+  };
   if(pg.p2===null){
     const t=(pg.result&&pg.result.byeType)||"pairing";
     const opt=(v,lbl)=>`<option value="${v}" ${v===t?"selected":""}>${lbl}</option>`;
     return `<div class="pairing">
-      <div class="tb">${pg.table}</div>
-      <div class="pname left">${esc(pname(pg.p1))} <span class="tag bye">BYE</span></div>
+      <div class="tb">${esc(pg.table)}</div>
+      <div class="pname left">${swappable?slotSel("p1",pg.p1):esc(pname(pg.p1))+ptsTag(pg.p1)} <span class="tag bye">BYE</span></div>
       <div class="vs pill">—</div>
       <div class="pname right ctrl">
-        <select class="special" data-act="byetype" data-r="${rIdx}" data-p="${pIdx}">
-          ${opt("pairing",`Pairing bye (+${cfg.byePoints})`)}${opt("full","Full point (+1)")}${opt("half","Half point (+½)")}${opt("zero","Zero point (0)")}
+        <select class="special" data-act="byetype" data-r="${rIdx}" data-p="${pIdx}" aria-label="bye type">
+          ${opt("pairing",`Pairing bye (+${esc(cfg.byePoints)})`)}${opt("full","Full point (+1)")}${opt("half","Half point (+½)")}${opt("zero","Zero point (0)")}
         </select>
       </div>
     </div>`;
   }
   const r=pg.result||{};
+  const rem = isRematch(rIdx,pg) ? ' <span class="tag" title="these players met in an earlier round">rematch</span>' : '';
+  if(swappable){
+    return `<div class="pairing">
+      <div class="tb">${esc(pg.table)}</div>
+      <div class="pname left">${slotSel("p1",pg.p1)}${ptsTag(pg.p1)}</div>
+      <div class="vs pill">vs</div>
+      <div class="pname right">${slotSel("p2",pg.p2)}${ptsTag(pg.p2)}</div>
+      ${rem?`<div style="grid-column:1/-1" class="ctrl">${rem.trim()}</div>`:""}
+    </div>`;
+  }
   const winClass = r.winner==="p1"?"win-l":r.winner==="p2"?"win-r":"";
   const sm = specialMode(r);
+  const dot = '<span class="win-dot" role="img" aria-label="winner"></span>';
   let ctrl;
   if(r.forfeit){
     ctrl = `<div class="ctrl"><span class="tag">${sm==="double"?"double forfeit":(r.winner==="p1"?esc(pname(pg.p1)):esc(pname(pg.p2)))+" wins by forfeit"}</span></div>`;
   } else if(cfg.trackSpread){
     ctrl = `<div class="ctrl">
-      <input class="scorein" type="number" inputmode="numeric" value="${r.score1??""}" data-act="score" data-r="${rIdx}" data-p="${pIdx}" data-w="score1" placeholder="—">
+      <input class="scorein" type="number" inputmode="numeric" value="${esc(r.score1??"")}" aria-label="${esc(pname(pg.p1))} score" data-act="score" data-r="${rIdx}" data-p="${pIdx}" data-w="score1" placeholder="—">
       <span class="pill">:</span>
-      <input class="scorein" type="number" inputmode="numeric" value="${r.score2??""}" data-act="score" data-r="${rIdx}" data-p="${pIdx}" data-w="score2" placeholder="—">
+      <input class="scorein" type="number" inputmode="numeric" value="${esc(r.score2??"")}" aria-label="${esc(pname(pg.p2))} score" data-act="score" data-r="${rIdx}" data-p="${pIdx}" data-w="score2" placeholder="—">
     </div>`;
   } else {
-    const b=(w,lbl)=>`<button class="${r.winner===w?'on':''}" data-act="res" data-r="${rIdx}" data-p="${pIdx}" data-win="${w}">${lbl}</button>`;
+    const b=(w,lbl,al)=>`<button class="${r.winner===w?'on':''}" aria-pressed="${r.winner===w}" aria-label="${al}" data-act="res" data-r="${rIdx}" data-p="${pIdx}" data-win="${w}">${lbl}</button>`;
     ctrl = `<div class="ctrl"><div class="resbtns">
-      ${b("p1","◀ Win")}${cfg.drawAllowed?b("draw","Draw"):""}${b("p2","Win ▶")}
+      ${b("p1","◀ Win",esc(pname(pg.p1))+" wins")}${cfg.drawAllowed?b("draw","Draw","Draw"):""}${b("p2","Win ▶",esc(pname(pg.p2))+" wins")}
     </div></div>`;
   }
   const optS=(v,lbl)=>`<option value="${v}" ${v===sm?"selected":""}>${lbl}</option>`;
-  const special = `<select class="special" data-act="special" data-r="${rIdx}" data-p="${pIdx}" title="forfeits / no-shows">
+  const special = `<select class="special" data-act="special" data-r="${rIdx}" data-p="${pIdx}" title="forfeits / no-shows" aria-label="forfeits / no-shows">
       ${optS("none","Played")}${optS("p1",esc(pname(pg.p1))+" by forfeit")}${optS("p2",esc(pname(pg.p2))+" by forfeit")}${optS("double","Double forfeit")}
     </select>`;
   const first = cfg.firstBalance? `<span class="firsttag" title="goes first">1st</span>`:"";
   return `<div class="pairing ${winClass} ${r.forfeit?'forf':''}">
-    <div class="tb">${pg.table}</div>
-    <div class="pname left">${r.winner==="p1"?'<span class="win-dot"></span>':''}${esc(pname(pg.p1))} ${first}</div>
+    <div class="tb">${esc(pg.table)}</div>
+    <div class="pname left">${r.winner==="p1"?dot:''}${esc(pname(pg.p1))}${ptsTag(pg.p1)} ${first}</div>
     <div class="vs pill">vs</div>
-    <div class="pname right">${esc(pname(pg.p2))}${r.winner==="p2"?' <span class="win-dot"></span>':''}</div>
-    <div style="grid-column:1/-1" class="ctrl">${ctrl}${special}</div>
+    <div class="pname right">${esc(pname(pg.p2))}${ptsTag(pg.p2)}${r.winner==="p2"?' '+dot:''}</div>
+    <div style="grid-column:1/-1" class="ctrl">${ctrl}${rem}${special}</div>
   </div>`;
 }
 
 function viewPairings(){
   const cur = state.rounds.length;
+  const S = cur>0 ? computeStats() : null;
   const reqCount = state.players.filter(p=>p.active!==false && p.byeRequest).length;
   let head = `<div class="card"><div class="toolbar">`;
-  const canStart = cur===0 || roundComplete(state.rounds[cur-1]);
+  // a pending game in ANY round blocks pairing (not just the last round)
+  const incompleteRd = state.rounds.find(rd=>!roundComplete(rd));
+  const canStart = !incompleteRd;
   const reachedMax = state.settings.limitRounds && cur>=state.settings.totalRounds;
   head += `<button class="btn primary" id="genRound" ${canStart && !reachedMax?"":"disabled"}>
       ${cur===0?"Generate Round 1":"Generate Round "+(cur+1)}</button>`;
+  const shown = state._viewRound||cur;
+  const adjustable = cur>0 && shown===cur &&
+    state.rounds[cur-1].pairings.some(pairingResultEmpty);
+  if(adjustable) head += `<button class="btn ghost" id="adjPairs">${state._editPairs?"Done adjusting":"Adjust pairings"}</button>`;
   if(cur>0){
     head += `<button class="btn ghost" id="printR">Print</button>`;
     head += `<button class="btn danger" id="delRound">Delete last round</button>`;
@@ -886,25 +1101,26 @@ function viewPairings(){
     const opts = flat.map((m,i)=>`<option value="${i}" ${i===flat.length-1?"selected":""}>R${m.round} B${m.table}: ${esc(shortMatchLabel(m.pg))}</option>`).join("");
     head += `<div class="toolbar copybar">
       <span class="pill">Copy results up to</span>
-      <select id="copyUpto">${opts}</select>
+      <select id="copyUpto" aria-label="copy results up to this match">${opts}</select>
       <button class="btn sm" id="copyBtn">Copy to clipboard</button>
     </div>`;
   }
   if(state._flash){ head += `<div class="banner ${state._flash.type}">${esc(state._flash.msg)}</div>`; state._flash=null; }
+  if(state._editPairs && adjustable) head += `<div class="banner info">Adjusting pairings: pick a different player in any board without results — the two players swap places. Swapping within a board flips who goes first.</div>`;
   if(reqCount) head += `<div class="banner info">${reqCount} player(s) requested a half-point bye — they'll sit out the next round.</div>`;
-  if(cur>0 && !canStart) head += `<div class="banner warn">Enter all results for round ${cur} before pairing the next.</div>`;
+  if(incompleteRd) head += `<div class="banner warn">Enter all results for round ${incompleteRd.number} before pairing the next.</div>`;
   if(reachedMax && canStart) head += `<div class="banner good">All ${state.settings.totalRounds} rounds complete. See Standings.</div>`;
   head += `</div>`;
 
   if(cur===0) return head + `<div class="card"><div class="empty">No rounds yet. Add players, then generate Round 1.</div></div>`;
 
-  const sel = state.rounds.map(rd=>`<option value="${rd.number}" ${rd.number===(state._viewRound||cur)?"selected":""}>Round ${rd.number}${roundComplete(rd)?" ✓":""}</option>`).join("");
-  const shown = state._viewRound||cur;
+  const sel = state.rounds.map(rd=>`<option value="${rd.number}" ${rd.number===shown?"selected":""}>Round ${rd.number}${roundComplete(rd)?" ✓":""}</option>`).join("");
   const rd = state.rounds[shown-1];
   const rIdx = shown-1;
-  const body = rd.pairings.map((pg,i)=>pairingRow(rIdx,pg,i)).join("");
+  const edit = !!state._editPairs && adjustable;
+  const body = rd.pairings.map((pg,i)=>pairingRow(rIdx,pg,i,S,edit)).join("");
   return head + `<div class="card">
-    <h2>Round pairings <span class="hint"><select id="roundSel">${sel}</select></span></h2>
+    <h2>Round ${shown} pairings <span class="hint"><select id="roundSel" aria-label="view round">${sel}</select></span></h2>
     ${body}
   </div>`;
 }
@@ -922,7 +1138,7 @@ function viewStandings(){
     const s=e.s, wd=e.p.active===false;
     return `<tr class="${wd?'inactive':''}">
       <td class="rank">${i+1}</td>
-      <td>${esc(e.p.name)} ${e.p.rating?`<span class="pill">${e.p.rating}</span>`:""}${wd?' <span class="tag wd">wd</span>':''}</td>
+      <td>${esc(e.p.name)} ${e.p.rating?`<span class="pill">${esc(e.p.rating)}</span>`:""}${wd?' <span class="tag wd">wd</span>':''}</td>
       <td class="num"><b>${s.points}</b></td>
       <td class="num">${s.wins}-${s.losses}${s.draws?("-"+s.draws):""}</td>
       ${cols.map(k=>`<td class="num">${cellVal(s,k)}</td>`).join("")}
@@ -956,7 +1172,7 @@ function viewCrosstable(){
     if(g.kind==="pending") return `<td class="cell">…</td>`;
     if(g.kind==="absent") return `<td class="cell absent" title="absent / withdrawn">—</td>`;
     if(g.kind==="bye"){ const lbl={pairing:"BYE",full:"BYE",half:"BYE½",zero:"BYE0"}[g.byeType]||"BYE";
-      return `<td class="cell bye" title="${g.byeType} bye">${lbl}</td>`; }
+      return `<td class="cell bye" title="${esc(g.byeType)} bye">${lbl}</td>`; }
     if(g.kind==="ffwin") return `<td class="cell"><span class="res w">+F</span> <span class="op">${seeds[g.oppReal]||""}</span></td>`;
     if(g.kind==="ffloss") return `<td class="cell"><span class="res l">−F</span> <span class="op">${seeds[g.oppReal]||""}</span></td>`;
     const rc = g.result==="W"?"w":g.result==="L"?"l":"d";
@@ -970,13 +1186,14 @@ function viewCrosstable(){
     return `<tr class="${e.p.active===false?'inactive':''}">
       <td class="num">${seeds[e.p.id]}</td>
       <td>${i+1}. ${esc(e.p.name)}</td>
-      <td class="num">${e.p.rating||""}</td>
+      <td class="num">${esc(e.p.rating||"")}</td>
       ${Array.from({length:nR},(_,r)=>cell(s,r+1)).join("")}
       <td class="num"><b>${s.points}</b></td>
     </tr>`;
   }).join("");
   return `<div class="card">
     <div class="toolbar"><h2 style="margin:0">Crosstable</h2><div class="spacer" style="flex:1"></div>
+      <button class="btn ghost sm" id="csvCross">Export CSV</button>
       <button class="btn ghost sm" id="printC">Print</button></div>
     <div class="cxwrap"><table class="cx"><thead><tr>
       <th>No</th><th>Player</th><th class="num">Rtg</th>${rhead}<th class="num">Pts</th>
@@ -994,9 +1211,9 @@ function viewSettings(){
   const tbItems = order.map((k,i)=>`<div class="tbitem">
       <span class="ord">${i+1}</span><span class="nm" title="${esc(TB_DEFS[k].title)}">${TB_DEFS[k].label}</span>
       <span class="arrows">
-        <button class="btn ghost sm" data-tbmove="up" data-k="${k}" ${i===0?"disabled":""}>↑</button>
-        <button class="btn ghost sm" data-tbmove="down" data-k="${k}" ${i===order.length-1?"disabled":""}>↓</button>
-        <button class="btn danger sm" data-tbremove="${k}">×</button>
+        <button class="btn ghost sm" data-tbmove="up" data-k="${k}" ${i===0?"disabled":""} aria-label="Move ${TB_DEFS[k].label} up">↑</button>
+        <button class="btn ghost sm" data-tbmove="down" data-k="${k}" ${i===order.length-1?"disabled":""} aria-label="Move ${TB_DEFS[k].label} down">↓</button>
+        <button class="btn danger sm" data-tbremove="${k}" aria-label="Remove ${TB_DEFS[k].label} tiebreak">×</button>
       </span></div>`).join("");
   const avail = Object.keys(TB_DEFS).filter(k=>!order.includes(k));
   const tbAdd = avail.map(k=>`<button class="btn sm" data-tbadd="${k}">+ ${TB_DEFS[k].label}</button>`).join("");
@@ -1012,7 +1229,7 @@ function viewSettings(){
       ${chk("limitRounds","Limit number of rounds","Cap the event at a set number of rounds. When off, you can keep generating rounds indefinitely.")}
     </div>
     <div class="row" style="gap:14px;margin-top:10px">
-      <label class="fld">Rounds cap<input id="setRounds" type="number" min="${c.limitRounds?Math.max(1,state.rounds.length):1}" value="${c.totalRounds}" ${c.limitRounds?"":"disabled"}></label>
+      <label class="fld">Rounds cap<input id="setRounds" type="number" min="${c.limitRounds?Math.max(1,state.rounds.length):1}" value="${esc(c.totalRounds)}" ${c.limitRounds?"":"disabled"}></label>
     </div>
     <hr class="sep">
     <h2>Scoring</h2>
@@ -1022,8 +1239,8 @@ function viewSettings(){
       ${chk("firstBalance","Balance who goes first","Auto-assign first move / colour to even things out across rounds.")}
     </div>
     <div class="row" style="gap:14px;margin-top:12px">
-      <label class="fld">Pairing-bye points<input id="setByeP" type="number" step="0.5" value="${c.byePoints}"></label>
-      <label class="fld">Bye / forfeit spread<input id="setByeS" type="number" value="${c.byeSpread}"></label>
+      <label class="fld">Pairing-bye points<input id="setByeP" type="number" step="0.5" value="${esc(c.byePoints)}"></label>
+      <label class="fld">Bye / forfeit spread<input id="setByeS" type="number" value="${esc(c.byeSpread)}"></label>
     </div>
     <hr class="sep">
     <h2>Tie-break order <span class="hint">applied after total points</span></h2>
@@ -1043,10 +1260,12 @@ function render(){
   const onWelcome = !state;
   document.body.classList.toggle("welcome", onWelcome);
   const v=document.getElementById("view");
+  const storageWarn = saveFailed
+    ? '<div class="banner warn">Warning: changes are NOT being saved — browser storage is blocked or full. Use Export to keep a copy.</div>' : '';
   if(onWelcome){
     document.getElementById("tname").textContent = "Swiss Pairing";
     document.getElementById("tsub").textContent = "Choose or create a tournament";
-    v.innerHTML = viewWelcome();
+    v.innerHTML = storageWarn + viewWelcome();
     wireWelcome();
     return;
   }
@@ -1055,21 +1274,29 @@ function render(){
     (state.settings.limitRounds ? `${state.settings.totalRounds}-round Swiss` : "Swiss tournament")
     + (state.settings.trackSpread?" · spread tracked":"");
   statusbar();
-  document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("active", b.dataset.tab===activeTab));
-  v.innerHTML = activeTab==="players"?viewPlayers()
+  document.querySelectorAll("#tabs button").forEach(b=>{
+    const on = b.dataset.tab===activeTab;
+    b.classList.toggle("active", on);
+    if(on) b.setAttribute("aria-current","page"); else b.removeAttribute("aria-current");
+  });
+  v.innerHTML = storageWarn + (activeTab==="players"?viewPlayers()
     : activeTab==="pairings"?viewPairings()
     : activeTab==="standings"?viewStandings()
     : activeTab==="crosstable"?viewCrosstable()
-    : viewSettings();
+    : viewSettings());
   wire();
 }
 
 /* ==================================================================
    Event wiring
    ================================================================== */
-function addPlayer(name,rating){
-  name=(name||"").trim(); if(!name) return;
-  state.players.push({id:state.nextId++, name, rating:rating?Number(rating):null, active:true});
+function addPlayer(name,rating,force){
+  name=(name||"").trim(); if(!name) return false;
+  if(!force && state.players.some(x=>x.name.trim().toLowerCase()===name.toLowerCase())
+     && !confirm(`"${name}" is already in the roster. Add anyway?`)) return false;
+  const r = (rating==null || String(rating).trim()==="") ? null : Number(rating);
+  state.players.push({id:state.nextId++, name, rating:Number.isFinite(r)?r:null, active:true});
+  return true;
 }
 function moveTb(k,dir){
   const order = effectiveTbOrder().slice();
@@ -1094,25 +1321,50 @@ function wire(){
   const $ = s=>document.getElementById(s);
 
   if(activeTab==="players"){
-    $("addPlayer").onclick=()=>{ addPlayer($("pName").value,$("pRating").value); save(); render(); };
+    $("addPlayer").onclick=()=>{
+      if(addPlayer($("pName").value,$("pRating").value)){
+        save(); render();
+        const nm=document.getElementById("pName"); if(nm) nm.focus(); // keep roster entry flowing
+      }
+    };
     $("pName").onkeydown=e=>{ if(e.key==="Enter") $("addPlayer").click(); };
     $("pRating").onkeydown=e=>{ if(e.key==="Enter") $("addPlayer").click(); };
     $("bulkAdd").onclick=()=>{
+      const dups=[];
       $("bulk").value.split(/\r?\n/).forEach(line=>{
         line=line.trim(); if(!line) return;
         const m=line.split(",");
-        addPlayer(m[0], m[1]?m[1].trim():"");
+        const nm=(m[0]||"").trim(); if(!nm) return;
+        const rt=m[1]?m[1].trim():"";
+        if(state.players.some(x=>x.name.trim().toLowerCase()===nm.toLowerCase())) dups.push({name:nm, rating:rt});
+        else addPlayer(nm, rt, true);
       });
+      if(dups.length && confirm(`${dups.length} name(s) already in the roster: ${dups.map(d=>d.name).join(", ")}. Add them too?`))
+        dups.forEach(d=>addPlayer(d.name, d.rating, true));
       save(); render();
     };
     document.querySelectorAll("[data-act]").forEach(el=>{
       el.onclick=()=>{
         const id=Number(el.dataset.id), act=el.dataset.act, p=byId(id);
         if(act==="del"){
-          if(state.rounds.length && !confirm("This player appears in existing rounds. Remove anyway?")) return;
+          // hard-deleting a paired player would poison opponents' tiebreaks —
+          // their history must stay; withdrawal is the correct tool
+          const paired = state.rounds.some(rd=>rd.pairings.some(pg=>pg.p1===id||pg.p2===id));
+          if(paired){ alert("This player already appears in a round's pairings. Use Withdraw instead — their games and opponents' tiebreaks stay correct."); return; }
+          if(!confirm(`Delete ${p.name}?`)) return;
           state.players=state.players.filter(x=>x.id!==id);
-        } else if(act==="toggle"){ p.active = p.active===false; if(p.active) {} }
-        else if(act==="bye"){ p.byeRequest = !p.byeRequest; }
+        } else if(act==="toggle"){ p.active = p.active===false; delete p.byeRequest; }
+        else if(act==="bye"){ if(p.byeRequest) delete p.byeRequest; else p.byeRequest = true; }
+        else if(act==="edit"){
+          const nm = prompt("Name:", p.name); if(nm==null) return;
+          const newName = nm.trim()||p.name;
+          if(newName.toLowerCase()!==p.name.trim().toLowerCase() &&
+             state.players.some(x=>x.id!==id && x.name.trim().toLowerCase()===newName.toLowerCase()) &&
+             !confirm(`"${newName}" is already in the roster. Use it anyway?`)) return;
+          p.name = newName;
+          const rt = prompt("Rating (blank = none):", p.rating??"");
+          if(rt!=null){ const v=rt.trim(); p.rating = v===""?null:(Number.isFinite(Number(v))?Number(v):p.rating); }
+        }
         save(); render();
       };
     });
@@ -1120,13 +1372,19 @@ function wire(){
 
   if(activeTab==="pairings"){
     if($("genRound")) $("genRound").onclick=generateNextRound;
-    if($("delRound")) $("delRound").onclick=()=>{ if(confirm("Delete the last round and its results?")){ state.rounds.pop(); state._viewRound=null; save(); render(); } };
+    if($("delRound")) $("delRound").onclick=()=>{ if(confirm("Delete the last round and its results?")){
+      const rd=state.rounds.pop();
+      // restore the half-point bye requests this round had consumed
+      ((rd&&rd.byeRequests)||[]).forEach(pid=>{ const p=byId(pid); if(p) p.byeRequest=true; });
+      state._viewRound=null; delete state._editPairs; save(); render(); } };
+    if($("adjPairs")) $("adjPairs").onclick=()=>{ state._editPairs=!state._editPairs; render(); };
     if($("printR")) $("printR").onclick=()=>window.print();
     if($("roundSel")) $("roundSel").onchange=e=>{ state._viewRound=Number(e.target.value); render(); };
     document.querySelectorAll('[data-act="res"]').forEach(b=> b.onclick=()=>setResult(+b.dataset.r,+b.dataset.p,b.dataset.win));
     document.querySelectorAll('[data-act="score"]').forEach(inp=> inp.onchange=()=>setScore(+inp.dataset.r,+inp.dataset.p,inp.dataset.w,inp.value));
     document.querySelectorAll('[data-act="special"]').forEach(s=> s.onchange=()=>setSpecial(+s.dataset.r,+s.dataset.p,s.value));
     document.querySelectorAll('[data-act="byetype"]').forEach(s=> s.onchange=()=>setByeType(+s.dataset.r,+s.dataset.p,s.value));
+    document.querySelectorAll('[data-swap]').forEach(s=> s.onchange=()=>swapPairSlot(+s.dataset.r,+s.dataset.p,s.dataset.slot,Number(s.value)));
     if($("copyBtn")) $("copyBtn").onclick=()=>{ const sel=$("copyUpto"); copyResults(sel?Number(sel.value):flatMatches().length-1); };
   }
 
@@ -1134,14 +1392,17 @@ function wire(){
     if($("printS")) $("printS").onclick=()=>window.print();
     if($("csvStand")) $("csvStand").onclick=exportStandingsCSV;
   }
-  if(activeTab==="crosstable"){ if($("printC")) $("printC").onclick=()=>window.print(); }
+  if(activeTab==="crosstable"){
+    if($("printC")) $("printC").onclick=()=>window.print();
+    if($("csvCross")) $("csvCross").onclick=exportCrosstableCSV;
+  }
 
   if(activeTab==="settings"){
-    $("setName").onchange=e=>{ state.name=e.target.value||"My Tournament"; save(); render(); };
-    $("setRounds").onchange=e=>{ const mn=state.settings.limitRounds?Math.max(1,state.rounds.length):1; state.settings.totalRounds=Math.max(mn,Number(e.target.value)||1); save(); render(); };
+    $("setName").onchange=e=>{ state.name=e.target.value||"My Tournament"; save(); renderPreservingFocus(); };
+    $("setRounds").onchange=e=>{ const mn=state.settings.limitRounds?Math.max(1,state.rounds.length):1; state.settings.totalRounds=Math.max(mn,Number(e.target.value)||1); save(); renderPreservingFocus(); };
     $("setR1").onchange=e=>{ state.settings.round1=e.target.value; save(); };
-    $("setByeP").onchange=e=>{ state.settings.byePoints=Number(e.target.value)||0; save(); render(); };
-    $("setByeS").onchange=e=>{ state.settings.byeSpread=Number(e.target.value)||0; save(); render(); };
+    $("setByeP").onchange=e=>{ state.settings.byePoints=Number(e.target.value)||0; save(); renderPreservingFocus(); };
+    $("setByeS").onchange=e=>{ state.settings.byeSpread=Number(e.target.value)||0; save(); renderPreservingFocus(); };
     document.querySelectorAll("[data-set]").forEach(cb=> cb.onchange=()=>{
       state.settings[cb.dataset.set]=cb.checked;
       if(cb.dataset.set==="limitRounds" && cb.checked && state.settings.totalRounds < state.rounds.length) state.settings.totalRounds = state.rounds.length;
@@ -1162,6 +1423,16 @@ function download(filename,text,type){
   a.href=URL.createObjectURL(blob); a.download=filename; a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
+// CSV writer: quotes every cell and neutralizes formula-leading characters in
+// strings (=,+,-,@,tab,CR) so a hostile player name can't execute in Excel/Sheets.
+function csvBuild(rows){
+  return rows.map(r=>r.map(c=>{
+    if(typeof c === "number") return `"${c}"`;
+    let s = String(c ?? "");
+    if(/^[=+\-@\t\r]/.test(s)) s = "'"+s;
+    return `"${s.replace(/"/g,'""')}"`;
+  }).join(",")).join("\n");
+}
 function exportStandingsCSV(){
   const {list,order}=standings();
   const cols = order.filter(k=>k!=="rating"&&k!=="headToHead");
@@ -1169,8 +1440,30 @@ function exportStandingsCSV(){
   const rows=list.map((e,i)=>{ const s=e.s;
     return [i+1,e.p.name,e.p.rating||"",s.points,s.wins,s.losses,s.draws,
       ...cols.map(k=> k==="spread"?s.spread : k==="wins"?s.wins : k==="cumulative"?s.cumulative : s[k])]; });
-  const csv=[head,...rows].map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
-  download((state.name||"standings")+"-standings.csv",csv,"text/csv");
+  download((state.name||"standings")+"-standings.csv",csvBuild([head,...rows]),"text/csv");
+}
+function exportCrosstableCSV(){
+  const {list}=standings();
+  const nR = state.rounds.length;
+  const seeds={}; state.players.slice().sort((a,b)=>(b.rating||0)-(a.rating||0)||a.name.localeCompare(b.name))
+    .forEach((p,i)=> seeds[p.id]=i+1);
+  const head=["No","Player","Rtg",...Array.from({length:nR},(_,i)=>"R"+(i+1)),"Pts"];
+  const code = g=>{
+    if(!g || g.kind==="pending") return "";
+    if(g.kind==="absent") return "-";
+    if(g.kind==="bye") return {pairing:"BYE",full:"BYE",half:"BYE:half",zero:"BYE:zero"}[g.byeType]||"BYE";
+    if(g.kind==="ffwin") return "+F"+(seeds[g.oppReal]||"");
+    if(g.kind==="ffloss") return "-F"+(seeds[g.oppReal]||"");
+    const r = g.result==="W"?"W":g.result==="L"?"L":"D";
+    return r+(seeds[g.oppId]||"");
+  };
+  const rows=list.map(e=>{
+    const s=e.s;
+    return [seeds[e.p.id], e.p.name, e.p.rating||"",
+      ...Array.from({length:nR},(_,r)=> code((s.log||[]).find(x=>x.round===r+1))),
+      s.points];
+  });
+  download((state.name||"tournament")+"-crosstable.csv",csvBuild([head,...rows]),"text/csv");
 }
 document.getElementById("btnSessions").onclick=closeSession;
 document.getElementById("btnExport").onclick=()=>{ if(state) download((state.name||"tournament")+".json",JSON.stringify(state,null,2)); };
@@ -1188,7 +1481,7 @@ document.getElementById("fileImport").onchange=e=>{
 
 /* ---------------- Boot ---------------- */
 document.querySelectorAll("#tabs button").forEach(b=>{
-  b.onclick=()=>{ activeTab=b.dataset.tab; if(state) state._viewRound=null; render(); };
+  b.onclick=()=>{ activeTab=b.dataset.tab; if(state){ state._viewRound=null; delete state._editPairs; } render(); };
 });
 render();
 </script>
