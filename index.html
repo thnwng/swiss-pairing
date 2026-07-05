@@ -1145,9 +1145,11 @@ function viewStandings(){
     </tr>`;
   }).join("");
   const orderTxt = ["Points", ...order.map(k=>TB_DEFS[k].label)].join(" → ");
+  const complete = state.rounds.length>0 && state.rounds.every(roundComplete);
   return `<div class="card">
     <div class="toolbar">
       <h2 style="margin:0">Standings</h2><div class="spacer" style="flex:1"></div>
+      <button class="btn ghost sm" id="texReport" ${complete?"":"disabled"} title="${complete?"Download a LaTeX (.tex) final report: standings + per-player records (compile with Overleaf or pdflatex)":"Finish all rounds to enable the final report"}">Report (.tex)</button>
       <button class="btn ghost sm" id="csvStand">Export CSV</button>
       <button class="btn ghost sm" id="printS">Print</button>
     </div>
@@ -1391,6 +1393,7 @@ function wire(){
   if(activeTab==="standings"){
     if($("printS")) $("printS").onclick=()=>window.print();
     if($("csvStand")) $("csvStand").onclick=exportStandingsCSV;
+    if($("texReport")) $("texReport").onclick=exportLatexReport;
   }
   if(activeTab==="crosstable"){
     if($("printC")) $("printC").onclick=()=>window.print();
@@ -1464,6 +1467,106 @@ function exportCrosstableCSV(){
       s.points];
   });
   download((state.name||"tournament")+"-crosstable.csv",csvBuild([head,...rows]),"text/csv");
+}
+
+/* ---------------- Final report (LaTeX / .tex) ----------------
+   Emits LaTeX source for the end-of-event report: page 1 = final
+   standings (position / name / wins / spread); then one page per
+   player = their game-by-game record (round, W-L before, opponent,
+   spread, W-L after) with a W-L / total-spread summary row.
+   Compile with pdflatex (Overleaf, or a local TeX install) for a PDF.
+   Byes/absences follow the app's own accounting: they do not move the
+   W-L record but their spread still counts toward the total. */
+function latexEsc(s){
+  s = String(s ?? "");
+  const map = {'\\':'\\textbackslash{}','&':'\\&','%':'\\%','$':'\\$','#':'\\#',
+    '_':'\\_','{':'\\{','}':'\\}','~':'\\textasciitilde{}','^':'\\textasciicircum{}'};
+  let out=""; for(const ch of s){ out += (map[ch]!==undefined?map[ch]:ch); }
+  return out;
+}
+function texSpread(n){ n = Number(n)||0; return `$${n>0?"+":""}${n}$`; }
+function buildLatexReport(){
+  const {list} = standings();
+  const hasTies = list.some(e=> (e.s && e.s.draws) > 0);
+  const rec = (w,l,t)=> hasTies ? `${w}-${l}-${t}` : `${w}-${l}`;
+  const dateStr = fmtDate(state.created);
+  const O = [];
+  O.push("\\documentclass[11pt]{article}");
+  O.push("\\usepackage[utf8]{inputenc}");
+  O.push("\\usepackage[T1]{fontenc}");
+  O.push("\\usepackage[margin=2cm]{geometry}");
+  O.push("\\usepackage{longtable}");
+  O.push("\\usepackage{booktabs}");
+  O.push("\\usepackage{array}");
+  O.push("\\setlength{\\parindent}{0pt}");
+  O.push("");
+  O.push("\\begin{document}");
+  O.push("");
+  O.push("\\begin{center}");
+  O.push(`{\\LARGE\\bfseries ${latexEsc(state.name||"Tournament")}}\\\\[4pt]`);
+  O.push("{\\large Final Standings}\\\\[2pt]");
+  if(dateStr) O.push(`{\\small ${latexEsc(dateStr)}}`);
+  O.push("\\end{center}");
+  O.push("\\vspace{8pt}");
+  O.push("");
+  // Page 1 — final standings
+  O.push("\\begin{longtable}{@{}r l r r@{}}");
+  O.push("\\toprule");
+  O.push("\\# & Player & Wins & Spread\\\\");
+  O.push("\\midrule");
+  O.push("\\endfirsthead");
+  O.push("\\toprule");
+  O.push("\\# & Player & Wins & Spread\\\\");
+  O.push("\\midrule");
+  O.push("\\endhead");
+  O.push("\\bottomrule");
+  O.push("\\endlastfoot");
+  list.forEach((e,i)=>{
+    const s=e.s;
+    const nm = latexEsc(e.p.name) + (e.p.active===false ? " {\\small (wd)}" : "");
+    O.push(`${i+1} & ${nm} & ${s.wins} & ${texSpread(s.spread)}\\\\`);
+  });
+  O.push("\\end{longtable}");
+  O.push("");
+  // Pages 2+ — one per player, their game-by-game record
+  list.forEach(e=>{
+    const s=e.s;
+    const rows = (s.log||[]).filter(g=> ["game","bye","ffwin","ffloss","absent"].includes(g.kind));
+    if(!rows.length) return;
+    O.push("\\newpage");
+    O.push(`\\section*{${latexEsc(e.p.name)}}`);
+    O.push("\\begin{center}");
+    O.push("\\begin{tabular}{@{}r c l r c@{}}");
+    O.push("\\toprule");
+    O.push("Game & W-L (before) & Opponent & Spread & W-L (after)\\\\");
+    O.push("\\midrule");
+    let w=0,l=0,t=0;
+    rows.forEach(g=>{
+      const before = rec(w,l,t);
+      if(g.kind==="game"){ if(g.result==="W") w++; else if(g.result==="L") l++; else t++; }
+      else if(g.kind==="ffwin") w++;
+      else if(g.kind==="ffloss") l++;
+      const after = rec(w,l,t);
+      let opp;
+      if(g.kind==="bye") opp = "Bye" + (g.byeType==="half"?" ($\\frac{1}{2}$)":g.byeType==="zero"?" (0)":"");
+      else if(g.kind==="ffwin"||g.kind==="ffloss") opp = latexEsc(pname(g.oppReal))+" (forfeit)";
+      else if(g.kind==="absent") opp = "(absent)";
+      else opp = latexEsc(pname(g.oppId));
+      O.push(`${g.round} & ${before} & ${opp} & ${texSpread(g.spread)} & ${after}\\\\`);
+    });
+    O.push("\\midrule");
+    O.push(`\\multicolumn{3}{@{}r}{\\textbf{Total}} & \\textbf{${texSpread(s.spread)}} & \\textbf{${rec(w,l,t)}}\\\\`);
+    O.push("\\bottomrule");
+    O.push("\\end{tabular}");
+    O.push("\\end{center}");
+    O.push("");
+  });
+  O.push("\\end{document}");
+  return O.join("\n");
+}
+function exportLatexReport(){
+  const fname = (state.name||"tournament").replace(/[^\w.-]+/g,"_")+"-report.tex";
+  download(fname, buildLatexReport(), "application/x-tex;charset=utf-8");
 }
 document.getElementById("btnSessions").onclick=closeSession;
 document.getElementById("btnExport").onclick=()=>{ if(state) download((state.name||"tournament")+".json",JSON.stringify(state,null,2)); };

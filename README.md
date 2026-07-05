@@ -31,7 +31,15 @@ and phone. State persists to `localStorage`.
   round); CSV export with chess-results codes (W12 / L3 / +F7 / BYE:half).
 - **Copy results** — copy neatly formatted results up to any chosen match to the
   clipboard (with a manual-copy fallback when the clipboard is blocked).
-- **Import / Export** — full tournament JSON export/import; standings CSV.
+- **Final report (LaTeX)** — once every round is complete, the Standings tab
+  offers "Report (.tex)": a LaTeX document with the final standings on page one
+  (position / name / wins / spread) and a page per player giving their
+  game-by-game record (round, W-L before, opponent, spread, W-L after) with a
+  W-L / total-spread summary. Compile it with Overleaf or a local `pdflatex`
+  to produce the PDF. (Byes and absences follow the app's own accounting: they
+  do not change the W-L record, but their spread still counts toward the total.)
+- **Import / Export** — full tournament JSON export/import; standings and
+  crosstable CSV.
 
 ## Tiebreaks — FIDE C.07 (2023) verified
 
