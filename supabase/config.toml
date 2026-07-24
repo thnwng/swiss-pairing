@@ -1,0 +1,10 @@
+# Both functions implement their own auth (Telegram initData HMAC / webhook
+# secret_token, both fail-closed), so platform JWT verification is off.
+# Keep this file in sync with the verify_jwt flag used at deploy time.
+project_id = "empjrokwgnsfczqpdvrp"
+
+[functions.session]
+verify_jwt = false
+
+[functions.bot]
+verify_jwt = false

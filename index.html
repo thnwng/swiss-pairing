@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- Hardening: no external connections except the design-system fonts; blocks exfiltration even if markup injection were ever possible. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://telegram.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://telegram.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src https://empjrokwgnsfczqpdvrp.supabase.co; base-uri 'none'; form-action 'none'">
 <meta name="description" content="Swiss-system tournament pairing manager — pairings, results, FIDE-verified tiebreaks, standings and crosstable. Runs entirely in your browser.">
 <title>Swiss Pairing — Tournament Manager</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23496175'/%3E%3Ctext x='32' y='44' font-family='Arial,Helvetica,sans-serif' font-size='36' font-weight='800' fill='%23fff' text-anchor='middle'%3ES%3C/text%3E%3C/svg%3E">
@@ -37,6 +37,8 @@
       try { tg.expand && tg.expand(); } catch (e) {}
       // score entry scrolls; don't let a swipe minimize the app mid-round
       try { tg.disableVerticalSwipes && tg.disableVerticalSwipes(); } catch (e) {}
+      // let the app know the bridge is up (session-mode routing hooks on this)
+      try { document.dispatchEvent(new Event("tg-ready")); } catch (e) {}
     };
     document.head.appendChild(s);
   })();
@@ -331,6 +333,7 @@ function normalizeSession(t){
     .filter(x=>x.round>=1 && x.p1>0 && x.p2>0 && x.p1!==x.p2);
   return {
     exceptions,
+    ...(typeof t.remoteCode==="string" && t.remoteCode ? {remoteCode: t.remoteCode.slice(0,12)} : {}),
     id: t.id==null ? null : num(t.id, null),
     name: String(t.name || "My Tournament"),
     created: num(t.created, Date.now()),
@@ -378,6 +381,7 @@ function save(){
   if(state) state.updated = Date.now();
   try{ localStorage.setItem(LS_KEY, JSON.stringify(store)); saveFailed = false; }
   catch(e){ saveFailed = true; }
+  if(typeof queueSessPush === "function") queueSessPush(); // live session: mirror to the server (no-op otherwise)
 }
 
 function createSession(name, dateVal, format){
@@ -1088,6 +1092,193 @@ async function copyResults(idx){
 }
 
 /* ==================================================================
+   Live sessions (Telegram group play): lobby -> organizer runs the normal
+   app with every save pushed up; everyone else spectates via polling.
+   Identity is server-validated initData; start_param is used only to pick
+   WHICH session to open (routing, not authorization).
+   ================================================================== */
+const SESSION_API = "https://empjrokwgnsfczqpdvrp.supabase.co/functions/v1/session";
+let sessMode = false, sessCode = null, sess = null, sessLive = false;
+let sessMsg = null, sessBusy = false, sessPollTimer = null, sessPushTimer = null, sessPushFailed = false;
+
+function tgApp(){ const t = window.Telegram && window.Telegram.WebApp; return (t && t.platform && t.platform!=="unknown") ? t : null; }
+async function sessCall(op, payload){
+  const tg = tgApp();
+  const initData = (tg && tg.initData) || window.__testInitData || "";
+  const res = await fetch(SESSION_API, {method:"POST", headers:{"content-type":"application/json"},
+    body: JSON.stringify({op, initData, code: sessCode, ...(payload||{})})});
+  let d = null; try{ d = await res.json(); }catch(e){}
+  if(!res.ok || !d){ const err = new Error((d && d.error) || "Network problem — try again."); err.status = res.status; throw err; }
+  if(d.session) sess = d;
+  return d;
+}
+function stopSessPoll(){ if(sessPollTimer){ clearInterval(sessPollTimer); sessPollTimer = null; } }
+function startSessPoll(ms){
+  stopSessPoll();
+  sessPollTimer = setInterval(async ()=>{
+    if(document.hidden || sessBusy || sessLive) return; // visibility-gated (free-tier rule)
+    try{
+      const before = sess ? sess.session.status+"|"+sess.session.updatedAt+"|"+JSON.stringify(sess.players) : "";
+      const d = await sessCall("get");
+      const after = d.session.status+"|"+d.session.updatedAt+"|"+JSON.stringify(d.players);
+      if(before !== after) renderSession();
+    }catch(e){ /* transient — next tick retries */ }
+  }, ms);
+}
+function enterSessionMode(code){
+  sessMode = true; sessCode = String(code||"").toUpperCase().slice(0,12);
+  render();
+  sessCall("get").then(()=>{ renderSession(); startSessPoll(3000); })
+    .catch(e=>{ sessMsg = {msg:String(e.message||e), type:"warn"}; renderSession(); });
+}
+/* organizer adopts the server state as a local session and runs the normal app;
+   local copy wins if newer (an offline edit not yet pushed), else server wins */
+function adoptRemote(d){
+  const norm = normalizeSession({...(d.state||{}), id:null, remoteCode:d.session.code});
+  let existing = store.sessions.find(s=>s.remoteCode===d.session.code);
+  if(existing){
+    if((norm.updated||0) > (existing.updated||0)){
+      const keep = existing.id;
+      Object.keys(existing).forEach(k=>delete existing[k]);
+      Object.assign(existing, norm, {id: keep});
+    }
+  } else {
+    norm.id = store.nextSessionId++;
+    store.sessions.push(norm);
+    existing = norm;
+  }
+  store.currentId = existing.id; state = existing;
+  activeTab = "pairings";
+  sessLive = true; stopSessPoll();
+  save(); render();
+}
+function queueSessPush(){
+  if(!(sessMode && sessLive && state && state.remoteCode===sessCode)) return;
+  if(sessPushTimer) clearTimeout(sessPushTimer);
+  sessPushTimer = setTimeout(async ()=>{
+    sessPushTimer = null;
+    try{
+      await sessCall("save", {state: JSON.parse(JSON.stringify(state))});
+      if(sessPushFailed){ sessPushFailed = false; render(); }
+    }catch(e){
+      sessPushFailed = true; render();
+      // retry network/server hiccups; a 4xx (session ended, not organizer) stays failed until the next edit
+      if(!e.status || e.status >= 500) sessPushTimer = setTimeout(()=>{ sessPushTimer = null; queueSessPush(); }, 5000);
+    }
+  }, 800);
+}
+function viewSessionLoading(){ return `<div class="card"><div class="empty">Connecting to the session…</div></div>`; }
+function viewLobby(){
+  const s = sess.session, ps = sess.players, me = sess.me;
+  const canStart = s.isCreator && ps.length >= 3;
+  const banner = sessMsg ? `<div class="banner ${sessMsg.type}">${esc(sessMsg.msg)}</div>` : "";
+  sessMsg = null;
+  const rows = ps.map(p=>`<tr>
+    <td>${esc(p.name)} ${p.isCreator?'<span class="tag">organizer</span>':''} ${p.mine?'<span class="tag bye">you</span>':''}</td>
+    <td class="num">${p.claimed
+      ? '<span class="pill">claimed</span>'
+      : `<button class="btn sm" data-claim="${esc(p.name)}" ${me?"disabled":""}>Claim</button>${s.isCreator?` <button class="btn danger sm" data-unrm="${esc(p.name)}" aria-label="Remove ${esc(p.name)}" title="Remove">${icon("close")}</button>`:""}`}</td>
+  </tr>`).join("");
+  return `<div class="card">
+    <h2>${esc(s.name)} <span class="hint">lobby · code ${esc(s.code)}</span></h2>
+    ${banner}
+    <div class="note" style="margin-bottom:10px">Organizer: ${esc(s.creatorName)} · ${ps.length} joined · needs 3+ to start</div>
+    <table><thead><tr><th>Player</th><th class="num"></th></tr></thead><tbody>${rows}</tbody></table>
+    ${!me ? `<div class="row" style="margin-top:12px">
+        <input id="lbNick" placeholder="Your nickname" style="flex:1;min-width:140px" maxlength="30">
+        <button class="btn primary" id="lbJoin">${icon("add")} Join</button>
+      </div>
+      <div class="note" style="margin-top:6px">Claim a listed name if one is yours, or join with your own.</div>`
+    : `<div class="row" style="margin-top:12px">
+        <input id="lbRename" placeholder="Rename yourself" style="flex:1;min-width:140px" maxlength="30">
+        <button class="btn sm" id="lbDoRename">${icon("edit")} Rename</button>
+        ${!s.isCreator ? `<button class="btn danger sm" id="lbLeave">Leave</button>` : ""}
+      </div>
+      <div class="row" style="margin-top:8px">
+        <input id="lbAdd" placeholder="Add a player who isn't on Telegram" style="flex:1;min-width:180px" maxlength="30">
+        <button class="btn sm" id="lbAddBtn">${icon("playlist_add")} Add name</button>
+      </div>`}
+    ${s.isCreator ? `<hr class="sep"><div class="row" style="align-items:flex-end">
+      <label class="fld">Format
+        <select id="lbFormat"><option value="swiss">Swiss system</option><option value="roundrobin">Round robin</option></select>
+      </label>
+      <button class="btn primary" id="lbStart" ${canStart?"":"disabled"}>Start tournament</button>
+      ${canStart?"":'<span class="pill">3+ players needed</span>'}
+    </div>` : ""}
+    <div class="note" style="margin-top:10px">${s.isCreator
+      ? "When you start, you run the tournament from this device — everyone else gets live standings."
+      : "Once the organizer starts, this page shows live pairings and standings."}</div>
+  </div>`;
+}
+function wireLobby(){
+  const $ = s=>document.getElementById(s);
+  const act = async fn=>{
+    if(sessBusy) return;
+    sessBusy = true;
+    try{ await fn(); }catch(e){ sessMsg = {msg:String(e.message||e), type:"warn"}; }
+    sessBusy = false;
+    renderSession();
+  };
+  document.querySelectorAll("[data-claim]").forEach(b=> b.onclick=()=>act(()=>sessCall("join",{claim:b.dataset.claim})));
+  document.querySelectorAll("[data-unrm]").forEach(b=> b.onclick=()=>act(()=>sessCall("remove-name",{name:b.dataset.unrm})));
+  if($("lbJoin")) $("lbJoin").onclick=()=>act(()=>sessCall("join",{nickname:$("lbNick").value}));
+  if($("lbNick")) $("lbNick").onkeydown=e=>{ if(e.key==="Enter") $("lbJoin").click(); };
+  if($("lbDoRename")) $("lbDoRename").onclick=()=>act(()=>sessCall("rename",{newName:$("lbRename").value}));
+  if($("lbLeave")) $("lbLeave").onclick=()=>act(()=>sessCall("leave"));
+  if($("lbAddBtn")) $("lbAddBtn").onclick=()=>act(()=>sessCall("add-name",{name:$("lbAdd").value}));
+  if($("lbStart")) $("lbStart").onclick=()=>act(async ()=>{ const d = await sessCall("start",{format:$("lbFormat").value}); adoptRemote(d); });
+}
+function viewSpectate(){
+  const done = sess.session.status==="done";
+  const saved = state;
+  let inner = "";
+  try{
+    state = normalizeSession({...(sess.state||{}), id:null});
+    const {list} = standings();
+    const rows = list.map((e,i)=>`<tr>
+      <td class="rank">${i+1}</td><td>${esc(e.p.name)}</td>
+      <td class="num"><b>${e.s.points}</b></td>
+      <td class="num">${e.s.wins}-${e.s.losses}${e.s.draws?"-"+e.s.draws:""}</td>
+      <td class="num">${fmtSpread(e.s.spread)}</td></tr>`).join("");
+    const rd = state.rounds[state.rounds.length-1];
+    const pairs = rd ? rd.pairings.map(pg=>{
+      if(pg.p2==null) return `<div class="note">${esc(pname(pg.p1))} — bye</div>`;
+      const r = pg.result||{};
+      const res = r.forfeit ? "forfeit"
+        : (r.score1!=null && r.score2!=null) ? `${r.score1} : ${r.score2}`
+        : r.winner ? (r.winner==="draw" ? "draw" : (r.winner==="p1" ? "win" : "loss")) : "…";
+      return `<div class="note">${esc(pname(pg.p1))} vs ${esc(pname(pg.p2))} — ${res}</div>`;
+    }).join("") : "";
+    inner = `<div class="card">
+      <h2>${esc(state.name)} <span class="hint">${done?"final standings":"live"} · ${state.settings.format==="roundrobin"?"round robin":"Swiss"}</span></h2>
+      <div class="cxwrap"><table><thead><tr>
+        <th class="rank">#</th><th>Player</th><th class="num">Pts</th><th class="num">W-L</th><th class="num">Spread</th>
+      </tr></thead><tbody>${rows}</tbody></table></div>
+    </div>
+    ${rd?`<div class="card"><h2>Round ${rd.number}${done?"":" <span class=\"hint\">in progress</span>"}</h2>${pairs}</div>`:""}
+    <div class="note" style="text-align:center">${done?"Tournament finished.":"Updates automatically while open."}</div>`;
+  } finally { state = saved; }
+  return inner;
+}
+function renderSession(){
+  if(!sessMode) return;
+  if(sessLive){ render(); return; }
+  document.body.classList.add("welcome"); // hides tabs/statusbar/header actions
+  document.getElementById("tname").textContent = sess ? sess.session.name : "Session";
+  document.getElementById("tsub").textContent = !sess ? "Connecting"
+    : sess.session.status==="lobby" ? "Waiting to start"
+    : sess.session.status==="done" ? "Finished" : "Live";
+  const v = document.getElementById("view");
+  if(!sess){
+    v.innerHTML = (sessMsg ? `<div class="banner ${sessMsg.type}">${esc(sessMsg.msg)}</div>` : "") + viewSessionLoading();
+    return;
+  }
+  if(sess.session.status==="lobby"){ v.innerHTML = viewLobby(); wireLobby(); return; }
+  if(sess.session.status==="active" && sess.session.isCreator){ adoptRemote(sess); return; }
+  v.innerHTML = viewSpectate();
+}
+
+/* ==================================================================
    Rendering
    ================================================================== */
 function flash(msg,type){
@@ -1465,16 +1656,20 @@ function viewSettings(){
     <div class="row">
       <button class="btn danger" id="resetRounds">${icon("delete_sweep")} Clear all rounds</button>
       <button class="btn danger" id="resetAll">${icon("restart_alt")} Reset tournament</button>
+      ${sessMode && sessLive && state.remoteCode ? `<button class="btn danger" id="endLive">${icon("check")} End live session</button>` : ""}
     </div>
   </div>`;
 }
 
 function render(){
+  if(sessMode && !sessLive){ renderSession(); return; }
   const onWelcome = !state;
   document.body.classList.toggle("welcome", onWelcome);
   const v=document.getElementById("view");
-  const storageWarn = saveFailed
-    ? '<div class="banner warn">Warning: changes are NOT being saved — browser storage is blocked or full. Use Export to keep a copy.</div>' : '';
+  const storageWarn = (saveFailed
+    ? '<div class="banner warn">Warning: changes are NOT being saved — browser storage is blocked or full. Use Export to keep a copy.</div>' : '')
+    + (sessMode && sessLive && sessPushFailed
+    ? '<div class="banner warn">Live sync to the group session is failing — results stay on this device and retry automatically.</div>' : '');
   if(onWelcome){
     document.getElementById("tname").textContent = "Swiss Pairing";
     document.getElementById("tsub").textContent = "Choose or create a tournament";
@@ -1487,7 +1682,8 @@ function render(){
   document.getElementById("tsub").textContent =
     (state.settings.limitRounds ? `${state.settings.totalRounds}-round ${fmtName}`
       : (state.settings.format==="roundrobin" ? "Round-robin tournament" : "Swiss tournament"))
-    + (state.settings.trackSpread?" · spread tracked":"");
+    + (state.settings.trackSpread?" · spread tracked":"")
+    + (sessMode && sessLive && state.remoteCode===sessCode ? ` · LIVE ${sessCode}` : "");
   statusbar();
   document.querySelectorAll("#tabs button").forEach(b=>{
     const on = b.dataset.tab===activeTab;
@@ -1641,6 +1837,11 @@ function wire(){
     document.querySelectorAll("[data-tbadd]").forEach(b=> b.onclick=()=>{ state.settings.tbOrder=[...effectiveTbOrder(), b.dataset.tbadd]; save(); render(); });
     $("resetRounds").onclick=()=>{ if(confirm("Clear all rounds and results? Players are kept.")){ state.rounds=[]; state._viewRound=null; save(); render(); } };
     $("resetAll").onclick=()=>{ if(confirm("Reset this tournament — erase its players, rounds and settings?")){ state.players=[]; state.rounds=[]; state.nextId=1; state.settings={...DEFAULT_SETTINGS}; state._viewRound=null; save(); render(); } };
+    if($("endLive")) $("endLive").onclick=async ()=>{
+      if(!confirm("End the live session? The group gets a final-standings link and results stop syncing.")) return;
+      try{ await sessCall("end"); sessLive=false; startSessPoll(4000); render(); }
+      catch(e){ alert(String(e.message||e)); }
+    };
   }
 }
 
@@ -1816,6 +2017,20 @@ document.querySelectorAll("#tabs button").forEach(b=>{
   b.onclick=()=>{ activeTab=b.dataset.tab; if(state){ state._viewRound=null; delete state._editPairs; } render(); };
 });
 render();
+
+// Session deep links: a t.me/gamepairingbot/matchups?startapp=CODE launch
+// routes into that session (the bridge script loads async, so hook its event).
+(function(){
+  const checkStart = ()=>{
+    try{
+      const tg = tgApp();
+      const p = tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param;
+      if(p) enterSessionMode(String(p));
+    }catch(e){}
+  };
+  if(tgApp()) checkStart();
+  else document.addEventListener("tg-ready", checkStart, {once:true});
+})();
 </script>
 </body>
 </html>
