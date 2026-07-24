@@ -1,10 +1,10 @@
-# Swiss Pairing — Tournament Manager
+# Match Pairing — Tournament Manager
 
 A tournament pairing manager (Swiss system and round robin) in a single
 self-contained `index.html`. No server, no build step, no dependencies — runs
 entirely in the browser on desktop and phone. State persists to `localStorage`.
 
-**Live:** https://thnwng.github.io/swiss-pairing/
+**Live:** https://thnwng.github.io/match-pairing/
 **Telegram:** the app is wired to `@gamepairingbot` as a Mini App — the bot's
 "Pairings" menu button opens this page inside Telegram (theme-synced via
 `telegram-web-app.js`; identical behavior in a normal browser). The bot token
@@ -101,7 +101,7 @@ tests/        console-paste regressions: FIDE C.07 oracle (80 values) and
 Open `index.html` in a browser, or serve the folder:
 
 ```
-py -m http.server 8123 -d swiss-pairing
+py -m http.server 8123 -d match-pairing
 ```
 
 ## Deploy

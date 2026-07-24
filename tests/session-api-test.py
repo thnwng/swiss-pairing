@@ -1,7 +1,7 @@
 """End-to-end regression for the `session` Edge Function (live backend).
 
 HOW TO RUN:  py tests/session-api-test.py   (from the repo root)
-Reads SWISSPAIR_TG_TOKEN from .env to mint cryptographically valid Telegram
+Reads MATCHPAIR_TG_TOKEN from .env to mint cryptographically valid Telegram
 initData for synthetic users (ids 9101-9104) — the same HMAC recipe Telegram
 uses, so the server's validateInitData accepts them. Never prints the token.
 Purge its sessions afterwards with:
@@ -20,7 +20,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="repla
 HERE = os.path.dirname(os.path.abspath(__file__))
 ENV = os.path.join(HERE, "..", ".env")
 TOKEN = next(l.split("=", 1)[1].strip() for l in open(ENV, encoding="utf-8")
-             if l.startswith("SWISSPAIR_TG_TOKEN="))
+             if l.startswith("MATCHPAIR_TG_TOKEN="))
 URL = "https://empjrokwgnsfczqpdvrp.supabase.co/functions/v1/session"
 
 def mint(user):

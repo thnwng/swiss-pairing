@@ -1,4 +1,4 @@
-// Supabase Edge Function: multi-user tournament sessions for the swiss-pairing
+// Supabase Edge Function: multi-user tournament sessions for the match-pairing
 // Mini App (@gamepairingbot). Client calls POST { op, initData, ...payload }.
 // Telegram initData is validated (HMAC with the bot token) on every call; the
 // service role touches the DB; no DB capability ever reaches the client.

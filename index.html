@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- Hardening: no external connections except the design-system fonts; blocks exfiltration even if markup injection were ever possible. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://telegram.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src https://empjrokwgnsfczqpdvrp.supabase.co; base-uri 'none'; form-action 'none'">
-<meta name="description" content="Swiss-system tournament pairing manager — pairings, results, FIDE-verified tiebreaks, standings and crosstable. Runs entirely in your browser.">
-<title>Swiss Pairing — Tournament Manager</title>
+<meta name="description" content="Match Pairing — tournament pairing manager for Swiss-system and round-robin events: pairings, results, FIDE-verified tiebreaks, standings and crosstable. Runs entirely in your browser.">
+<title>Match Pairing — Tournament Manager</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23496175'/%3E%3Ctext x='32' y='44' font-family='Arial,Helvetica,sans-serif' font-size='36' font-weight='800' fill='%23fff' text-anchor='middle'%3ES%3C/text%3E%3C/svg%3E">
 
 <!-- Theme BEFORE first paint (no FOUC): OS scheme immediately, then the
@@ -294,7 +294,7 @@ th,td{padding:12px}
   <header class="app">
     <div class="logo">S</div>
     <div>
-      <h1 id="tname">Swiss Pairing</h1>
+      <h1 id="tname">Match Pairing</h1>
       <div class="sub" id="tsub">Tournament manager</div>
     </div>
     <div class="spacer"></div>
@@ -1807,7 +1807,7 @@ function render(){
     + (sessMode && sessLive && sessPushFailed
     ? '<div class="banner warn">Live sync to the group session is failing — results stay on this device and retry automatically.</div>' : '');
   if(onWelcome){
-    document.getElementById("tname").textContent = "Swiss Pairing";
+    document.getElementById("tname").textContent = "Match Pairing";
     document.getElementById("tsub").textContent = "Choose or create a tournament";
     v.innerHTML = storageWarn + viewWelcome();
     wireWelcome();
