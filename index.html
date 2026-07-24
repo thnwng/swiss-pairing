@@ -4,21 +4,41 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- Hardening: no external connections except the design-system fonts; blocks exfiltration even if markup injection were ever possible. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://telegram.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; base-uri 'none'; form-action 'none'">
 <meta name="description" content="Swiss-system tournament pairing manager — pairings, results, FIDE-verified tiebreaks, standings and crosstable. Runs entirely in your browser.">
 <title>Swiss Pairing — Tournament Manager</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23496175'/%3E%3Ctext x='32' y='44' font-family='Arial,Helvetica,sans-serif' font-size='36' font-weight='800' fill='%23fff' text-anchor='middle'%3ES%3C/text%3E%3C/svg%3E">
 
-<!-- Set the theme from the OS color scheme BEFORE first paint (no FOUC).
+<!-- Theme BEFORE first paint (no FOUC): OS scheme immediately, then the
+     Telegram Mini App bridge loads ASYNC (never parser-blocking — an
+     unreachable telegram.org must not stall first paint) and, inside the
+     Telegram webview, takes over the theme and wires up the app.
      Accent is left unset → Halcyon defaults to "slate". -->
 <script>
   (function () {
-    var mq = matchMedia("(prefers-color-scheme: dark)");
-    var set = function () {
-      document.documentElement.setAttribute("data-theme", mq.matches ? "dark" : "light");
+    var setTheme = function (dark) {
+      document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
     };
-    set();
-    mq.addEventListener && mq.addEventListener("change", set);
+    var mq = matchMedia("(prefers-color-scheme: dark)");
+    setTheme(mq.matches);
+    mq.addEventListener && mq.addEventListener("change", function () {
+      if (!window.__tgThemed) setTheme(mq.matches);
+    });
+    var s = document.createElement("script");
+    s.src = "https://telegram.org/js/telegram-web-app.js";
+    s.onload = function () {
+      var tg = window.Telegram && window.Telegram.WebApp;
+      if (!(tg && tg.platform && tg.platform !== "unknown")) return; // plain browser: stay on OS theme
+      var tgTheme = function () { try { setTheme(tg.colorScheme === "dark"); } catch (e) {} };
+      window.__tgThemed = true;
+      tgTheme();
+      try { tg.onEvent && tg.onEvent("themeChanged", tgTheme); } catch (e) {}
+      try { tg.ready && tg.ready(); } catch (e) {}
+      try { tg.expand && tg.expand(); } catch (e) {}
+      // score entry scrolls; don't let a swipe minimize the app mid-round
+      try { tg.disableVerticalSwipes && tg.disableVerticalSwipes(); } catch (e) {}
+    };
+    document.head.appendChild(s);
   })();
 </script>
 
@@ -240,6 +260,7 @@ const OLD_KEY = "swissPairing.v1";
 const DEFAULT_SETTINGS = {
   totalRounds: 6,
   limitRounds: false,     // cap the number of rounds? (off => generate freely)
+  format: "swiss",        // swiss | roundrobin
   round1: "fold",         // fold | adjacent | random
   trackSpread: true,      // Scrabble-style point margins
   drawAllowed: true,
@@ -294,6 +315,7 @@ function normalizeSession(t){
       }),
     };
     if(Array.isArray(r.byeRequests)) rd.byeRequests = r.byeRequests.map(x=>num(x,0));
+    if(Array.isArray(r.rrField)) rd.rrField = r.rrField.map(x=>num(x,0));
     return rd;
   });
   const settings = {...DEFAULT_SETTINGS, ...(t.settings && typeof t.settings==="object" ? t.settings : {})};
@@ -301,9 +323,14 @@ function normalizeSession(t){
   settings.byePoints = num(settings.byePoints, DEFAULT_SETTINGS.byePoints);
   settings.byeSpread = num(settings.byeSpread, DEFAULT_SETTINGS.byeSpread);
   settings.round1 = ({fold:1,adjacent:1,random:1})[settings.round1] ? settings.round1 : "fold";
+  settings.format = ({swiss:1,roundrobin:1})[settings.format] ? settings.format : "swiss";
   settings.tbOrder = Array.isArray(settings.tbOrder) ? settings.tbOrder.map(String) : null;
   ["trackSpread","drawAllowed","firstBalance","limitRounds"].forEach(k=> settings[k] = !!settings[k]);
+  const exceptions = (Array.isArray(t.exceptions)?t.exceptions:[])
+    .map(x=>({round:num(x&&x.round,0), p1:num(x&&x.p1,0), p2:num(x&&x.p2,0)}))
+    .filter(x=>x.round>=1 && x.p1>0 && x.p2>0 && x.p1!==x.p2);
   return {
+    exceptions,
     id: t.id==null ? null : num(t.id, null),
     name: String(t.name || "My Tournament"),
     created: num(t.created, Date.now()),
@@ -353,9 +380,10 @@ function save(){
   catch(e){ saveFailed = true; }
 }
 
-function createSession(name, dateVal){
+function createSession(name, dateVal, format){
   const created = dateVal ? new Date(dateVal+"T00:00:00").getTime() : Date.now();
   const s = normalizeSession({id: store.nextSessionId++, name:(name||"").trim()||"Untitled tournament", created, updated:created});
+  if(format==="roundrobin" || format==="swiss") s.settings.format = format;
   store.sessions.push(s);
   store.currentId = s.id; state = s; activeTab = "players";
   save(); render();
@@ -711,6 +739,79 @@ function matchPairs(players, S, allowRematch){
   return null;
 }
 
+/* ---------------- Round robin (circle method) ----------------
+   Classic rotation: fix one entrant, rotate the rest. Odd fields get a null
+   slot = bye, so over one full cycle every player byes exactly once and the
+   bye alternates through the field. */
+function roundRobinSchedule(ids){
+  const arr = ids.slice();
+  if(arr.length%2===1) arr.push(null);
+  const n = arr.length, half = n/2, roundsN = n-1;
+  const fixed = arr[0]; let rest = arr.slice(1);
+  const out = [];
+  for(let r=0;r<roundsN;r++){
+    const cur = [fixed, ...rest], pairs = [];
+    for(let i=0;i<half;i++) pairs.push([cur[i], cur[n-1-i]]);
+    out.push(pairs);
+    rest.unshift(rest.pop());
+  }
+  return out;
+}
+const pairKey = (a,b)=> (a==null||b==null) ? null : Math.min(a,b)+"-"+Math.max(a,b);
+// fixed-opponent exceptions applicable to a round, among the given player ids
+function forcedPairsFor(roundNum, idSet){
+  return (state.exceptions||[]).filter(x=>x.round===roundNum && idSet.has(x.p1) && idSet.has(x.p2));
+}
+/* Emit the round-robin round for roundNum over the given field (ALL active
+   players, including any sitting out on a requested bye — the schedule must
+   not change shape when someone skips a round). Exceptions pick WHICH base
+   round is played now (each pair meets in exactly one base round, so forcing
+   a pair = playing its base round); base rounds whose pairs were already
+   played are skipped so the rotation self-heals over the cycle. */
+function roundRobinRound(roundNum, field){
+  const ids = field.map(p=>p.id).sort((a,b)=>a-b);
+  const sched = roundRobinSchedule(ids);
+  const cycle = sched.length;
+  if(!cycle) return {pairs:[], byePlayer:null, forcedConflict:false, ids};
+  const playedPairs = new Set();
+  state.rounds.forEach(rd=>rd.pairings.forEach(pg=>{ const k=pairKey(pg.p1,pg.p2); if(k) playedPairs.add(k); }));
+  const roundHasPlayed = i => sched[i].some(([a,b])=>{ const k=pairKey(a,b); return k && playedPairs.has(k); });
+  let idx = (roundNum-1) % cycle;
+  let chosen = false, forcedConflict = false;
+  const forced = forcedPairsFor(roundNum, new Set(ids));
+  if(forced.length){
+    const idxs = [...new Set(forced.map(x=> sched.findIndex(rp=> rp.some(([a,b])=> pairKey(a,b)===pairKey(x.p1,x.p2)))))];
+    if(idxs.length===1 && idxs[0]>=0){
+      if(forced.some(x=>playedPairs.has(pairKey(x.p1,x.p2)))){
+        // its base round was already consumed — forcing would replay old games
+        flash("That fixed pairing has already been played this cycle — using the regular schedule.","warn");
+        forcedConflict = true;
+      } else {
+        idx = idxs[0]; chosen = true;
+        const forcedKeys = new Set(forced.map(x=>pairKey(x.p1,x.p2)));
+        const sideRepeat = sched[idx].some(([a,b])=>{
+          const k = pairKey(a,b); return k && !forcedKeys.has(k) && playedPairs.has(k);
+        });
+        if(sideRepeat) flash("Honouring a fixed pairing this round also repeats a match that was already played.","warn");
+      }
+    } else {
+      flash("Fixed pairings for this round can't all happen in one round-robin round — using the regular schedule.","warn");
+      forcedConflict = true;
+    }
+  }
+  if(!chosen && roundHasPlayed(idx)){
+    const alt = sched.findIndex((_,i)=>!roundHasPlayed(i));
+    if(alt>=0) idx = alt;
+  }
+  const pairs = []; let byePlayer = null;
+  sched[idx].forEach(([a,b])=>{
+    if(a==null) byePlayer = byId(b);
+    else if(b==null) byePlayer = byId(a);
+    else pairs.push([byId(a), byId(b)]);
+  });
+  return {pairs, byePlayer, forcedConflict, ids};
+}
+
 function generateNextRound(){
   // hard guard: never pair on incomplete data — a pending game in ANY round
   // drops points from seeding and its pair from the rematch-avoidance set
@@ -728,28 +829,68 @@ function generateNextRound(){
   const requested = active.filter(p=>p.byeRequest);
   active = active.filter(p=>!p.byeRequest);
 
-  if(roundNum===1){
-    if(cfg.round1==="random") shuffle(active);
-    else active.sort((a,b)=>(b.rating||0)-(a.rating||0) || a.name.localeCompare(b.name));
-  } else {
-    active.sort((a,b)=> S[b.id].points-S[a.id].points ||
-      (cfg.trackSpread? S[b.id].spread-S[a.id].spread:0) ||
-      (b.rating||0)-(a.rating||0));
-  }
-
   let byePlayer=null;
-  if(active.length%2===1){ byePlayer=pickBye(active,S); active=active.filter(p=>p!==byePlayer); }
-
   let pairs;
-  if(roundNum===1 && cfg.round1==="fold" && active.length){
-    pairs = foldPair(active);
-  } else if(active.length){
-    pairs = matchPairs(active,S,false);
-    if(!pairs){
-      pairs = matchPairs(active,S,true);
-      if(pairs) flash("Some rematches were unavoidable this round.","warn");
+  let forcedConflict=false;
+  const extraByes=[];
+  if(cfg.format==="roundrobin"){
+    // schedule over the FULL field (bye-requesters included) so a one-round
+    // sit-out never changes the rotation; the requester's scheduled opponent
+    // gets a bye for that round instead
+    const fieldPlayers = active.concat(requested);
+    const rr = roundRobinRound(roundNum, fieldPlayers);
+    forcedConflict = rr.forcedConflict;
+    byePlayer = rr.byePlayer;
+    const reqIds = new Set(requested.map(p=>p.id));
+    pairs = [];
+    rr.pairs.forEach(([a,b])=>{
+      const aOut=reqIds.has(a.id), bOut=reqIds.has(b.id);
+      if(aOut && bOut) return;             // both sit out; their half-bye rows come from `requested`
+      if(aOut) extraByes.push(b);
+      else if(bOut) extraByes.push(a);
+      else pairs.push([a,b]);
+    });
+    if(byePlayer && reqIds.has(byePlayer.id)) byePlayer=null;
+    // a genuine field change (withdrawal/reinstate/add) rebuilds the rotation —
+    // warn once, since some pairs may now repeat while others wait longer
+    const prev = state.rounds.length ? state.rounds[state.rounds.length-1].rrField : null;
+    if(prev && JSON.stringify(prev)!==JSON.stringify(rr.ids))
+      flash("The field changed since last round — the round-robin schedule was rebuilt; some matchups may repeat or shift.","warn");
+    state._rrField = rr.ids;
+  } else {
+    if(roundNum===1){
+      if(cfg.round1==="random") shuffle(active);
+      else active.sort((a,b)=>(b.rating||0)-(a.rating||0) || a.name.localeCompare(b.name));
+    } else {
+      active.sort((a,b)=> S[b.id].points-S[a.id].points ||
+        (cfg.trackSpread? S[b.id].spread-S[a.id].spread:0) ||
+        (b.rating||0)-(a.rating||0));
     }
-  } else pairs = [];
+
+    // fixed-opponent exceptions: seat these pairs first, pair the rest normally
+    const forced = forcedPairsFor(roundNum, new Set(active.map(p=>p.id)));
+    const forcedIds = new Set(); const forcedPairs = [];
+    forced.forEach(x=>{
+      if(forcedIds.has(x.p1) || forcedIds.has(x.p2)) return; // player fixed twice — post-check flags it
+      forcedIds.add(x.p1); forcedIds.add(x.p2);
+      forcedPairs.push([byId(x.p1), byId(x.p2)]);
+    });
+    active = active.filter(p=>!forcedIds.has(p.id));
+
+    if(active.length%2===1){ byePlayer=pickBye(active,S); active=active.filter(p=>p!==byePlayer); }
+
+    if(roundNum===1 && cfg.round1==="fold" && active.length){
+      pairs = foldPair(active);
+    } else if(active.length){
+      pairs = matchPairs(active,S,false);
+      if(!pairs){
+        pairs = matchPairs(active,S,true);
+        if(pairs) flash("Some rematches were unavoidable this round.","warn");
+      }
+    } else pairs = [];
+    if(pairs) pairs = forcedPairs.concat(pairs);
+    else if(forcedPairs.length && !active.length) pairs = forcedPairs;
+  }
   if(!pairs){ alert("Could not generate pairings."); return; }
 
   const pairings = pairs.map(pr=>{
@@ -760,14 +901,26 @@ function generateNextRound(){
   // top boards first
   pairings.sort((x,y)=> (S[y.p1].points+S[y.p2].points) - (S[x.p1].points+S[x.p2].points));
   if(byePlayer) pairings.push({p1:byePlayer.id, p2:null, result:{byeType:"pairing"}});
+  extraByes.forEach(p=> pairings.push({p1:p.id, p2:null, result:{byeType:"pairing"}}));
   requested.forEach(p=> pairings.push({p1:p.id, p2:null, result:{byeType:"half"}}));
   pairings.forEach((pg,i)=>pg.table=i+1);
+
+  // surface any fixed pairing for this round that could not be honoured —
+  // unless the RR generator already flashed a more specific conflict message
+  const wanted = (state.exceptions||[]).filter(x=>x.round===roundNum);
+  if(wanted.length && !forcedConflict){
+    const got = new Set(pairings.filter(pg=>pg.p2!=null).map(pg=>pairKey(pg.p1,pg.p2)));
+    const missed = wanted.filter(x=>!got.has(pairKey(x.p1,x.p2)));
+    if(missed.length) flash(`Fixed pairing not applied this round: ${missed.map(x=>pname(x.p1)+" vs "+pname(x.p2)).join(", ")} (player withdrawn, on a bye, or conflicting fixes).`,"warn");
+  }
 
   // clear bye requests now they're satisfied; remember them on the round so
   // deleting the round restores them (regeneration honours them again)
   requested.forEach(p=> delete p.byeRequest);
 
-  state.rounds.push({number:roundNum, pairings, byeRequests: requested.map(p=>p.id)});
+  const newRound = {number:roundNum, pairings, byeRequests: requested.map(p=>p.id)};
+  if(state._rrField){ newRound.rrField = state._rrField; delete state._rrField; }
+  state.rounds.push(newRound);
   activeTab="pairings"; state._viewRound=null; delete state._editPairs; save(); render();
 }
 
@@ -978,6 +1131,9 @@ function viewWelcome(){
     <div class="row" style="align-items:flex-end;gap:12px">
       <label class="fld" style="flex:1;min-width:180px">Name<input id="newName" placeholder="e.g. Club Championship"></label>
       <label class="fld">Date<input id="newDate" type="date" value="${today}"></label>
+      <label class="fld">Format
+        <select id="newFormat"><option value="swiss">Swiss system</option><option value="roundrobin">Round robin</option></select>
+      </label>
       <button class="btn primary" id="createSess">${icon("add")} Create</button>
     </div>
     <div class="row" style="margin-top:12px">
@@ -1136,6 +1292,27 @@ function viewPairings(){
       <button class="btn sm" id="copyBtn">${icon("content_copy")} Copy</button>
     </div>`;
   }
+  // fixed-opponent exceptions: force a pair to meet in a chosen future round
+  {
+    const activeP = state.players.filter(p=>p.active!==false);
+    const exList = state.exceptions||[];
+    if(activeP.length>=2 || exList.length){
+      const optsFor = sel => activeP.map((p,i)=>`<option value="${p.id}" ${i===sel?"selected":""}>${esc(p.name)}</option>`).join("");
+      head += `<div class="toolbar copybar">
+        <span class="pill">Fix a pairing: round</span>
+        <input id="exRound" type="number" min="${cur+1}" value="${cur+1}" style="width:64px" aria-label="round number">
+        <select id="exP1" aria-label="first player">${optsFor(0)}</select>
+        <span class="pill">vs</span>
+        <select id="exP2" aria-label="second player">${optsFor(1)}</select>
+        <button class="btn sm" id="exAdd">${icon("add")} Fix</button>
+      </div>`;
+      if(exList.length){
+        head += `<div class="toolbar copybar" style="flex-wrap:wrap">` + exList.map((x,i)=>
+          `<span class="tag" title="fixed pairing">R${x.round}: ${esc(pname(x.p1))} vs ${esc(pname(x.p2))}
+            <button class="btn ghost sm" data-exdel="${i}" aria-label="Remove fixed pairing: round ${x.round}, ${esc(pname(x.p1))} vs ${esc(pname(x.p2))}" style="height:auto;padding:0 3px">${icon("close")}</button></span>`).join(" ") + `</div>`;
+      }
+    }
+  }
   if(state._flash){ head += `<div class="banner ${state._flash.type}">${esc(state._flash.msg)}</div>`; state._flash=null; }
   if(state._editPairs && adjustable) head += `<div class="banner info">Adjusting pairings: pick a different player in any board without results — the two players swap places. Swapping within a board flips who goes first.</div>`;
   if(reqCount) head += `<div class="banner info">${reqCount} player(s) requested a half-point bye — they'll sit out the next round.</div>`;
@@ -1254,8 +1431,11 @@ function viewSettings(){
     <h2>Tournament</h2>
     <div class="row" style="gap:14px">
       <label class="fld">Name<input id="setName" value="${esc(state.name)}" style="min-width:220px"></label>
-      <label class="fld">Round 1 pairing
-        <select id="setR1">${opt("fold",c.round1,"Fold (rating: top vs bottom)")}${opt("adjacent",c.round1,"Adjacent (1v2, 3v4)")}${opt("random",c.round1,"Random")}</select>
+      <label class="fld">Pairing format
+        <select id="setFormat">${opt("swiss",c.format,"Swiss system")}${opt("roundrobin",c.format,"Round robin")}</select>
+      </label>
+      <label class="fld">Round 1 pairing (Swiss)
+        <select id="setR1" ${c.format==="roundrobin"?"disabled":""}>${opt("fold",c.round1,"Fold (rating: top vs bottom)")}${opt("adjacent",c.round1,"Adjacent (1v2, 3v4)")}${opt("random",c.round1,"Random")}</select>
       </label>
     </div>
     <div class="checks" style="margin-top:12px">
@@ -1303,8 +1483,10 @@ function render(){
     return;
   }
   document.getElementById("tname").textContent = state.name;
+  const fmtName = state.settings.format==="roundrobin" ? "round robin" : "Swiss";
   document.getElementById("tsub").textContent =
-    (state.settings.limitRounds ? `${state.settings.totalRounds}-round Swiss` : "Swiss tournament")
+    (state.settings.limitRounds ? `${state.settings.totalRounds}-round ${fmtName}`
+      : (state.settings.format==="roundrobin" ? "Round-robin tournament" : "Swiss tournament"))
     + (state.settings.trackSpread?" · spread tracked":"");
   statusbar();
   document.querySelectorAll("#tabs button").forEach(b=>{
@@ -1340,7 +1522,7 @@ function moveTb(k,dir){
 }
 function wireWelcome(){
   const $=s=>document.getElementById(s);
-  $("createSess").onclick=()=>createSession($("newName").value, $("newDate").value);
+  $("createSess").onclick=()=>createSession($("newName").value, $("newDate").value, $("newFormat").value);
   $("newName").onkeydown=e=>{ if(e.key==="Enter") $("createSess").click(); };
   $("welImport").onclick=()=>document.getElementById("fileImport").click();
   document.querySelectorAll("[data-sopen]").forEach(b=> b.onclick=()=>openSession(Number(b.dataset.sopen)));
@@ -1419,6 +1601,17 @@ function wire(){
     document.querySelectorAll('[data-act="byetype"]').forEach(s=> s.onchange=()=>setByeType(+s.dataset.r,+s.dataset.p,s.value));
     document.querySelectorAll('[data-swap]').forEach(s=> s.onchange=()=>swapPairSlot(+s.dataset.r,+s.dataset.p,s.dataset.slot,Number(s.value)));
     if($("copyBtn")) $("copyBtn").onclick=()=>{ const sel=$("copyUpto"); copyResults(sel?Number(sel.value):flatMatches().length-1); };
+    if($("exAdd")) $("exAdd").onclick=()=>{
+      const r=Number($("exRound").value), a=Number($("exP1").value), b=Number($("exP2").value);
+      if(!state.exceptions) state.exceptions=[];
+      if(!Number.isFinite(r) || r<=state.rounds.length){ flash("Fixed pairings apply to future rounds only.","warn"); render(); return; }
+      if(a===b){ flash("Pick two different players.","warn"); render(); return; }
+      if(state.exceptions.some(x=>x.round===r && (x.p1===a||x.p2===a||x.p1===b||x.p2===b))){
+        flash("One of those players already has a fixed pairing in that round.","warn"); render(); return;
+      }
+      state.exceptions.push({round:r, p1:a, p2:b}); save(); render();
+    };
+    document.querySelectorAll("[data-exdel]").forEach(b=> b.onclick=()=>{ state.exceptions.splice(Number(b.dataset.exdel),1); save(); render(); });
   }
 
   if(activeTab==="standings"){
@@ -1435,6 +1628,7 @@ function wire(){
     $("setName").onchange=e=>{ state.name=e.target.value||"My Tournament"; save(); renderPreservingFocus(); };
     $("setRounds").onchange=e=>{ const mn=state.settings.limitRounds?Math.max(1,state.rounds.length):1; state.settings.totalRounds=Math.max(mn,Number(e.target.value)||1); save(); renderPreservingFocus(); };
     $("setR1").onchange=e=>{ state.settings.round1=e.target.value; save(); };
+    $("setFormat").onchange=e=>{ state.settings.format=e.target.value; save(); render(); };
     $("setByeP").onchange=e=>{ state.settings.byePoints=Number(e.target.value)||0; save(); renderPreservingFocus(); };
     $("setByeS").onchange=e=>{ state.settings.byeSpread=Number(e.target.value)||0; save(); renderPreservingFocus(); };
     document.querySelectorAll("[data-set]").forEach(cb=> cb.onchange=()=>{

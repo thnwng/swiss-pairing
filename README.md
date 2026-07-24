@@ -1,10 +1,15 @@
 # Swiss Pairing — Tournament Manager
 
-A Swiss-system tournament pairing manager in a single self-contained `index.html`.
-No server, no build step, no dependencies — runs entirely in the browser on desktop
-and phone. State persists to `localStorage`.
+A tournament pairing manager (Swiss system and round robin) in a single
+self-contained `index.html`. No server, no build step, no dependencies — runs
+entirely in the browser on desktop and phone. State persists to `localStorage`.
 
 **Live:** https://thnwng.github.io/swiss-pairing/
+**Telegram:** the app is wired to `@gamepairingbot` as a Mini App — the bot's
+"Pairings" menu button opens this page inside Telegram (theme-synced via
+`telegram-web-app.js`; identical behavior in a normal browser). The bot token
+lives in the gitignored `.env` (see `.env.example`) and is used only by local
+admin scripts to configure the bot; the page itself never sees it.
 
 ## Features
 
@@ -13,12 +18,20 @@ and phone. State persists to `localStorage`.
 - **Players** — single or bulk add ("Name, rating" per line), edit name/rating in
   place, withdraw/reinstate, request a half-point bye for the next round,
   duplicate-name warning on add.
-- **Pairings** — round 1 by fold / adjacent / random; later rounds pair within score
-  groups with rematch avoidance (exhaustive backtracking, rematches only when
-  unavoidable). Byes go to the lowest-scoring player without a prior bye, chosen
-  so the bye never forces an avoidable rematch. Optional first-move/colour
-  balancing. Unlimited rounds by default, with an optional round cap. Pairing
-  cards show each player's score and flag rematches.
+- **Two formats** — Swiss system or round robin, chosen at creation (or in
+  Settings). Round robin uses the circle method: every pair meets exactly once
+  per cycle; odd fields get a rotating bye (each player exactly one per cycle);
+  after a full cycle it continues as a double round robin.
+- **Pairings (Swiss)** — round 1 by fold / adjacent / random; later rounds pair
+  within score groups with rematch avoidance (exhaustive backtracking, rematches
+  only when unavoidable). Byes go to the lowest-scoring player without a prior
+  bye, chosen so the bye never forces an avoidable rematch. Optional
+  first-move/colour balancing. Unlimited rounds by default, with an optional
+  round cap. Pairing cards show each player's score and flag rematches.
+- **Fixed pairings** — force two players to meet in a chosen future round; the
+  generator seats them and pairs everyone else around it (in round robin it
+  reorders the schedule so the cycle stays intact). A warning appears if a fix
+  can't be honoured.
 - **Adjust pairings** — manual override on any unscored board: swap players
   between boards, reassign the bye, or flip who goes first.
 - **Results** — Scrabble-style score entry with point-spread tracking, or chess-style
@@ -60,7 +73,9 @@ report `passed: 80`.
 ```
 index.html    the entire app (CSS + HTML + JS)
 halcyon-ds/   vendored Halcyon design-system styles (tokens + components)
-tests/        FIDE C.07 oracle regression (paste into DevTools console)
+tests/        console-paste regressions: FIDE C.07 oracle (80 values) and
+              round-robin/fixed-pairing properties — run after engine changes
+.env.example  key catalog for the @gamepairingbot admin scripts (.env gitignored)
 ```
 
 ## Run locally

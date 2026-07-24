@@ -1,0 +1,7 @@
+# secrets — the bot token lives here; never commit
+.env
+.env.*
+!.env.example
+
+# local build/debris
+*.log
