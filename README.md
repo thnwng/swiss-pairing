@@ -11,19 +11,23 @@ entirely in the browser on desktop and phone. State persists to `localStorage`.
 lives in the gitignored `.env` (see `.env.example`) and is used only by local
 admin scripts to configure the bot; the page itself never sees it.
 
-**Group sessions:** add the bot to a group and type `/newsession [name]` — it
-posts a join button (`t.me/gamepairingbot/matchups?startapp=CODE`). Anyone can
-open the lobby, claim an unclaimed roster name or join with their own nickname,
-and rename themselves; anyone already in can add offline players by name. The
-organizer (whoever ran `/newsession`, or whoever creates a session in the app)
-starts the event at 3+ players, picking Swiss or round robin. The organizer
-then runs the tournament in the full app — every save syncs to the backend —
-while everyone else sees live standings and the current round, refreshing
-automatically. Backend: Supabase Edge Functions (`supabase/functions/session`,
-`bot`) with Telegram initData validated server-side on every call (HMAC, per
-the workspace TMA standard); tables are RLS-on/zero-policy, service-role only;
-the webhook checks its secret token fail-closed. Deploys go through the
-Supabase MCP from these files — the repo is the source of truth.
+**Group sessions** (the mahjong-web link-first mechanism): add the bot to a
+group — it greets with an **Open Pairings** button (`/start` or `/open` repost
+it) whose deep link carries the group id. That opens the group's session home:
+its tournaments, or **create one in the app**, which posts a join button
+(`t.me/gamepairingbot/matchups?startapp=CODE`) into the chat. **Opening the
+link puts you in** (unseated); the lobby lists the roster — tap **"This is
+me"** on your name, join under a new name, or add offline players as
+placeholders; rename or leave any time before the start. The organizer starts
+the event at 3+ roster names, picking Swiss or round robin, then runs the
+tournament in the full app — every save syncs to the backend — while everyone
+else sees live standings and the current round, refreshing automatically.
+Backend: Supabase Edge Functions (`supabase/functions/session`, `bot`) with
+Telegram initData validated server-side on every call (HMAC, per the workspace
+TMA standard); tables are RLS-on/zero-policy, service-role only; seat claims
+are race-safe via a unique index; the webhook checks its secret token
+fail-closed. Deploys go through the Supabase MCP from these files — the repo
+is the source of truth.
 
 ## Features
 

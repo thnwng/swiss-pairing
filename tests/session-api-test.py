@@ -2,17 +2,16 @@
 
 HOW TO RUN:  py tests/session-api-test.py   (from the repo root)
 Reads SWISSPAIR_TG_TOKEN from .env to mint cryptographically valid Telegram
-initData for three synthetic users (ids 9101/9102/9103) — the same HMAC recipe
-Telegram uses, so the server's validateInitData accepts them. Never prints the
-token. Creates its own sessions and deletes nothing else; cleans up by ending
-with a distinctive creator id you can purge with:
+initData for synthetic users (ids 9101-9104) — the same HMAC recipe Telegram
+uses, so the server's validateInitData accepts them. Never prints the token.
+Purge its sessions afterwards with:
   delete from sp_sessions where creator_id in (9101,9102);
 
-Checks (must all be True): forged-hash 401; create; claim-taken 409;
-add-name-before-join 403; nickname join; add placeholder; claim placeholder;
-rename; non-creator start 403; start with 3 (state + format); non-creator save
-403; creator save; viewer get; post-start join 409; under-3 start 400;
-unknown-op stable marker.
+The protocol mirrors mahjong-web's link-first mechanism:
+  create (in-app, creator joins UNSEATED; roster starts EMPTY) ->
+  open = membership (idempotent, unseated) -> add-name placeholders (member) ->
+  claim ("This is me") / join-new (own name) -> rename/leave/remove-name ->
+  organizer start at 3+ ROSTER names -> organizer-only save -> viewers get.
 """
 import hmac, hashlib, urllib.parse, json, time, urllib.request, sys, os, io
 
@@ -51,32 +50,68 @@ def call(payload):
 
 R = {}
 s, _ = call({"op": "get", "initData": BAD, "code": "XXXXXX"}); R["forged401"] = s == 401
+
 s, d = call({"op": "create", "initData": A, "name": "Gate Suite"})
-R["create"] = s == 200 and d["session"]["status"] == "lobby" and d["session"]["isCreator"]
+R["create_unseatedCreator"] = (s == 200 and d["session"]["isCreator"] and d["isMember"]
+                               and d["me"] is None and d["players"] == [])
 code = d["session"]["code"]
-s, d = call({"op": "join", "initData": B, "code": code, "claim": "Alice"}); R["claimTaken409"] = s == 409
-s, d = call({"op": "add-name", "initData": B, "code": code, "name": "Zed"}); R["addBeforeJoin403"] = s == 403
-s, d = call({"op": "join", "initData": B, "code": code, "nickname": "Bobby"}); R["joinNick"] = s == 200 and d["me"] == "Bobby"
+
+s, d = call({"op": "add-name", "initData": C, "code": code, "name": "Zed"})
+R["addBeforeOpen403"] = s == 403
+
+s, d = call({"op": "open", "initData": B, "code": code})
+R["openJoinsUnseated"] = s == 200 and d["isMember"] and d["me"] is None
+
 s, d = call({"op": "add-name", "initData": B, "code": code, "name": "Spot"})
-R["addName"] = s == 200 and any(p["name"] == "Spot" and not p["claimed"] for p in d["players"])
-s, d = call({"op": "join", "initData": C, "code": code, "claim": "Spot"}); R["claimOk"] = s == 200 and d["me"] == "Spot"
-s, d = call({"op": "rename", "initData": C, "code": code, "newName": "Cara"}); R["rename"] = s == 200 and d["me"] == "Cara"
-s, d = call({"op": "start", "initData": B, "code": code, "format": "roundrobin"}); R["nonCreatorStart403"] = s == 403
+R["memberAddsName"] = s == 200 and any(p["name"] == "Spot" and not p["claimed"] for p in d["players"])
+
+s, d = call({"op": "claim", "initData": B, "code": code, "player": "Spot"})
+R["thisIsMe"] = s == 200 and d["me"] == "Spot" and any(p["name"] == "Spot" and p["claimed"] for p in d["players"])
+
+s, d = call({"op": "open", "initData": C, "code": code})
+s, d = call({"op": "join-new", "initData": C, "code": code, "name": "Cara"})
+R["joinNew"] = s == 200 and d["me"] == "Cara" and len(d["players"]) == 2
+
+s, d = call({"op": "claim", "initData": A, "code": code, "player": "Spot"})
+R["claimTaken409"] = s == 409
+s, d = call({"op": "join-new", "initData": A, "code": code, "name": "Cara"})
+R["joinNewDup409"] = s == 409
+s, d = call({"op": "join-new", "initData": A, "code": code, "name": "Alice"})
+R["creatorSeats"] = s == 200 and d["me"] == "Alice" and len(d["players"]) == 3
+
+s, d = call({"op": "rename", "initData": B, "code": code, "newName": "Bobby"})
+R["renameFollowsRoster"] = (s == 200 and d["me"] == "Bobby"
+                            and any(p["name"] == "Bobby" and p["claimed"] for p in d["players"])
+                            and not any(p["name"] == "Spot" for p in d["players"]))
+
+s, d = call({"op": "remove-name", "initData": B, "code": code, "name": "Bobby"})
+R["removeClaimed409"] = s == 409
+s, d = call({"op": "add-name", "initData": B, "code": code, "name": "Ghost"})
+s, d = call({"op": "remove-name", "initData": B, "code": code, "name": "Ghost"})
+R["removeUnclaimed"] = s == 200 and not any(p["name"] == "Ghost" for p in d["players"])
+
+s, d = call({"op": "start", "initData": B, "code": code, "format": "roundrobin"})
+R["nonCreatorStart403"] = s == 403
 s, d = call({"op": "start", "initData": A, "code": code, "format": "roundrobin"})
-R["start"] = (s == 200 and d["session"]["status"] == "active" and d["session"]["format"] == "roundrobin"
-              and d["state"] and len(d["state"]["players"]) == 3
+R["start"] = (s == 200 and d["session"]["status"] == "active"
+              and sorted(p["name"] for p in d["state"]["players"]) == ["Alice", "Bobby", "Cara"]
               and d["state"]["settings"]["format"] == "roundrobin")
+
 st = d["state"]; st["rounds"].append({"number": 1, "pairings": []})
 s, d = call({"op": "save", "initData": B, "code": code, "state": st}); R["nonCreatorSave403"] = s == 403
 s, d = call({"op": "save", "initData": A, "code": code, "state": st}); R["saveOk"] = s == 200 and len(d["state"]["rounds"]) == 1
-s, d = call({"op": "get", "initData": C, "code": code}); R["viewerGet"] = s == 200 and d["state"] is not None
-s, d = call({"op": "join", "initData": mint({"id": 9104, "first_name": "Late"}), "code": code, "nickname": "Late"})
-R["lateJoin409"] = s == 409
+
+s, d = call({"op": "open", "initData": mint({"id": 9104, "first_name": "Late"}), "code": code})
+R["lateViewerOpens"] = s == 200 and d["isMember"] and d["me"] is None and d["state"] is not None
+s, d = call({"op": "claim", "initData": mint({"id": 9104, "first_name": "Late"}), "code": code, "player": "Alice"})
+R["lateClaim409"] = s == 409
+
 s, d = call({"op": "create", "initData": B, "name": "Tiny"}); code2 = d["session"]["code"]
 s, d = call({"op": "start", "initData": B, "code": code2, "format": "swiss"}); R["under3Refused"] = s == 400
+
 s, d = call({"op": "nope", "initData": A, "code": code}); R["unknownOp400"] = s == 400 and d.get("error") == "unknown op"
 
 print(json.dumps(R, indent=1))
 ok = all(R.values())
-print("ALL PASS:" , ok, "| sessions used:", code, code2, "(purge: delete from sp_sessions where creator_id in (9101,9102);)")
+print("ALL PASS:", ok, "| sessions used:", code, code2, "(purge: delete from sp_sessions where creator_id in (9101,9102);)")
 sys.exit(0 if ok else 1)

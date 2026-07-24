@@ -1125,11 +1125,22 @@ function startSessPoll(ms){
     }catch(e){ /* transient — next tick retries */ }
   }, ms);
 }
+let sessChatId = null;      // launched from a group (g<chatId>) -> session home for that chat
+let sessChatList = null;
 function enterSessionMode(code){
-  sessMode = true; sessCode = String(code||"").toUpperCase().slice(0,12);
+  sessMode = true; sessChatId = null; sess = null;
+  sessCode = String(code||"").toUpperCase().slice(0,12);
   render();
-  sessCall("get").then(()=>{ renderSession(); startSessPoll(3000); })
+  // opening a session's link JOINS you (unseated member) — mahjong pattern
+  sessCall("open").then(()=>{ renderSession(); startSessPoll(3000); })
     .catch(e=>{ sessMsg = {msg:String(e.message||e), type:"warn"}; renderSession(); });
+}
+function enterChatHome(chatId){
+  sessMode = true; sessChatId = Number(chatId); sess = null; sessCode = null;
+  render();
+  sessCall("list-by-chat", {tgChatId: sessChatId})
+    .then(d=>{ sessChatList = d.sessions||[]; renderSession(); })
+    .catch(e=>{ sessChatList = []; sessMsg = {msg:String(e.message||e), type:"warn"}; renderSession(); });
 }
 /* organizer adopts the server state as a local session and runs the normal app;
    local copy wins if newer (an offline edit not yet pushed), else server wins */
@@ -1167,46 +1178,84 @@ function queueSessPush(){
     }
   }, 800);
 }
-function viewSessionLoading(){ return `<div class="card"><div class="empty">Connecting to the session…</div></div>`; }
+function viewSessionLoading(){ return `<div class="card"><div class="empty">Connecting…</div></div>`; }
+function takeSessMsg(){ const b = sessMsg ? `<div class="banner ${sessMsg.type}">${esc(sessMsg.msg)}</div>` : ""; sessMsg = null; return b; }
+/* Session home for a Telegram group (launched via g<chatId>): its sessions,
+   or create a new one — creating announces the join button into the chat. */
+function viewChatHome(){
+  const list = sessChatList || [];
+  const rows = list.map(s=>`<div class="sess">
+      <div class="meta"><div class="snm">${esc(s.name)}</div>
+        <div class="sdt">${esc(s.status)} · ${s.players} player${s.players===1?"":"s"} · code ${esc(s.code)}</div></div>
+      <div class="sact"><button class="btn primary sm" data-sopen-code="${esc(s.code)}">${icon("folder_open")} Open</button></div>
+    </div>`).join("");
+  return `<div class="card">
+    <h2>New tournament for this group</h2>
+    ${takeSessMsg()}
+    <div class="row" style="align-items:flex-end;gap:12px">
+      <label class="fld" style="flex:1;min-width:180px">Name<input id="chName" placeholder="e.g. Friday Cup" maxlength="60"></label>
+      <button class="btn primary" id="chCreate">${icon("add")} Create</button>
+    </div>
+    <div class="note" style="margin-top:8px">Creating posts a join button into the group chat. Players claim their name or add their own; you start at 3+.</div>
+  </div>
+  <div class="card">
+    <h2>This group's tournaments <span class="hint">${list.length}</span></h2>
+    ${list.length ? `<div class="sesslist">${rows}</div>` : `<div class="empty">None yet — create one above.</div>`}
+  </div>`;
+}
+function wireChatHome(){
+  const $ = s=>document.getElementById(s);
+  if($("chCreate")) $("chCreate").onclick=async ()=>{
+    if(sessBusy) return; sessBusy = true;
+    try{
+      const d = await sessCall("create", {name:$("chName").value, chatId: sessChatId});
+      sessChatId = null; sessCode = d.session.code;
+      renderSession(); startSessPoll(3000);
+    }catch(e){ sessMsg = {msg:String(e.message||e), type:"warn"}; renderSession(); }
+    sessBusy = false;
+  };
+  document.querySelectorAll("[data-sopen-code]").forEach(b=> b.onclick=()=>enterSessionMode(b.dataset.sopenCode));
+}
+/* Link-first lobby (mahjong pattern): opening = you're in (maybe unseated).
+   The roster lists names; "This is me" claims one, or join under a new name;
+   anyone in can add placeholder names for players who aren't on Telegram. */
 function viewLobby(){
   const s = sess.session, ps = sess.players, me = sess.me;
   const canStart = s.isCreator && ps.length >= 3;
-  const banner = sessMsg ? `<div class="banner ${sessMsg.type}">${esc(sessMsg.msg)}</div>` : "";
-  sessMsg = null;
   const rows = ps.map(p=>`<tr>
     <td>${esc(p.name)} ${p.isCreator?'<span class="tag">organizer</span>':''} ${p.mine?'<span class="tag bye">you</span>':''}</td>
     <td class="num">${p.claimed
       ? '<span class="pill">claimed</span>'
-      : `<button class="btn sm" data-claim="${esc(p.name)}" ${me?"disabled":""}>Claim</button>${s.isCreator?` <button class="btn danger sm" data-unrm="${esc(p.name)}" aria-label="Remove ${esc(p.name)}" title="Remove">${icon("close")}</button>`:""}`}</td>
+      : `<button class="btn sm" data-claim="${esc(p.name)}" ${me?"disabled":""}>This is me</button>${(me||s.isCreator)?` <button class="btn danger sm" data-unrm="${esc(p.name)}" aria-label="Remove ${esc(p.name)}" title="Remove">${icon("close")}</button>`:""}`}</td>
   </tr>`).join("");
   return `<div class="card">
     <h2>${esc(s.name)} <span class="hint">lobby · code ${esc(s.code)}</span></h2>
-    ${banner}
-    <div class="note" style="margin-bottom:10px">Organizer: ${esc(s.creatorName)} · ${ps.length} joined · needs 3+ to start</div>
-    <table><thead><tr><th>Player</th><th class="num"></th></tr></thead><tbody>${rows}</tbody></table>
+    ${takeSessMsg()}
+    <div class="note" style="margin-bottom:10px">Organizer: ${esc(s.creatorName)} · ${ps.length} on the list · needs 3+ to start${me?` · you are <b>${esc(me)}</b>`:" · you're in as a viewer until you take a name"}</div>
+    ${ps.length ? `<table><thead><tr><th>Player</th><th class="num"></th></tr></thead><tbody>${rows}</tbody></table>`
+      : `<div class="empty">No names yet — add yours below.</div>`}
     ${!me ? `<div class="row" style="margin-top:12px">
-        <input id="lbNick" placeholder="Your nickname" style="flex:1;min-width:140px" maxlength="30">
-        <button class="btn primary" id="lbJoin">${icon("add")} Join</button>
-      </div>
-      <div class="note" style="margin-top:6px">Claim a listed name if one is yours, or join with your own.</div>`
+        <input id="lbNick" placeholder="Join as… (your name)" style="flex:1;min-width:140px" maxlength="30">
+        <button class="btn primary" id="lbJoin">${icon("add")} Join as new player</button>
+      </div>`
     : `<div class="row" style="margin-top:12px">
         <input id="lbRename" placeholder="Rename yourself" style="flex:1;min-width:140px" maxlength="30">
         <button class="btn sm" id="lbDoRename">${icon("edit")} Rename</button>
         ${!s.isCreator ? `<button class="btn danger sm" id="lbLeave">Leave</button>` : ""}
-      </div>
-      <div class="row" style="margin-top:8px">
-        <input id="lbAdd" placeholder="Add a player who isn't on Telegram" style="flex:1;min-width:180px" maxlength="30">
-        <button class="btn sm" id="lbAddBtn">${icon("playlist_add")} Add name</button>
       </div>`}
+    <div class="row" style="margin-top:8px">
+      <input id="lbAdd" placeholder="Add a player who isn't on Telegram" style="flex:1;min-width:180px" maxlength="30">
+      <button class="btn sm" id="lbAddBtn">${icon("playlist_add")} Add name</button>
+    </div>
     ${s.isCreator ? `<hr class="sep"><div class="row" style="align-items:flex-end">
       <label class="fld">Format
         <select id="lbFormat"><option value="swiss">Swiss system</option><option value="roundrobin">Round robin</option></select>
       </label>
       <button class="btn primary" id="lbStart" ${canStart?"":"disabled"}>Start tournament</button>
-      ${canStart?"":'<span class="pill">3+ players needed</span>'}
+      ${canStart?"":'<span class="pill">3+ names needed</span>'}
     </div>` : ""}
     <div class="note" style="margin-top:10px">${s.isCreator
-      ? "When you start, you run the tournament from this device — everyone else gets live standings."
+      ? "Everyone on the list plays (claimed or not). When you start, you run the tournament from this device — the group gets live standings."
       : "Once the organizer starts, this page shows live pairings and standings."}</div>
   </div>`;
 }
@@ -1219,9 +1268,9 @@ function wireLobby(){
     sessBusy = false;
     renderSession();
   };
-  document.querySelectorAll("[data-claim]").forEach(b=> b.onclick=()=>act(()=>sessCall("join",{claim:b.dataset.claim})));
+  document.querySelectorAll("[data-claim]").forEach(b=> b.onclick=()=>act(()=>sessCall("claim",{player:b.dataset.claim})));
   document.querySelectorAll("[data-unrm]").forEach(b=> b.onclick=()=>act(()=>sessCall("remove-name",{name:b.dataset.unrm})));
-  if($("lbJoin")) $("lbJoin").onclick=()=>act(()=>sessCall("join",{nickname:$("lbNick").value}));
+  if($("lbJoin")) $("lbJoin").onclick=()=>act(()=>sessCall("join-new",{name:$("lbNick").value}));
   if($("lbNick")) $("lbNick").onkeydown=e=>{ if(e.key==="Enter") $("lbJoin").click(); };
   if($("lbDoRename")) $("lbDoRename").onclick=()=>act(()=>sessCall("rename",{newName:$("lbRename").value}));
   if($("lbLeave")) $("lbLeave").onclick=()=>act(()=>sessCall("leave"));
@@ -1264,13 +1313,21 @@ function renderSession(){
   if(!sessMode) return;
   if(sessLive){ render(); return; }
   document.body.classList.add("welcome"); // hides tabs/statusbar/header actions
+  const v = document.getElementById("view");
+  // group home (launched from a chat, no session picked yet)
+  if(sessChatId != null && !sessCode){
+    document.getElementById("tname").textContent = "Group tournaments";
+    document.getElementById("tsub").textContent = "Pick a session or create one";
+    v.innerHTML = sessChatList === null ? takeSessMsg() + viewSessionLoading() : viewChatHome();
+    if(sessChatList !== null) wireChatHome();
+    return;
+  }
   document.getElementById("tname").textContent = sess ? sess.session.name : "Session";
   document.getElementById("tsub").textContent = !sess ? "Connecting"
     : sess.session.status==="lobby" ? "Waiting to start"
     : sess.session.status==="done" ? "Finished" : "Live";
-  const v = document.getElementById("view");
   if(!sess){
-    v.innerHTML = (sessMsg ? `<div class="banner ${sessMsg.type}">${esc(sessMsg.msg)}</div>` : "") + viewSessionLoading();
+    v.innerHTML = takeSessMsg() + viewSessionLoading();
     return;
   }
   if(sess.session.status==="lobby"){ v.innerHTML = viewLobby(); wireLobby(); return; }
@@ -2018,14 +2075,19 @@ document.querySelectorAll("#tabs button").forEach(b=>{
 });
 render();
 
-// Session deep links: a t.me/gamepairingbot/matchups?startapp=CODE launch
-// routes into that session (the bridge script loads async, so hook its event).
+// Session deep links (mahjong-parity, prefix-typed): startapp=g<chatId> =
+// launched from a Telegram group -> that group's session home; a bare code =
+// direct join link -> opening it joins the session. The bridge script loads
+// async, so hook its event.
 (function(){
   const checkStart = ()=>{
     try{
       const tg = tgApp();
-      const p = tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param;
-      if(p) enterSessionMode(String(p));
+      const p = String((tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || "");
+      if(!p) return;
+      const g = p.match(/^g(-?\d+)$/);
+      if(g) enterChatHome(Number(g[1]));
+      else enterSessionMode(p);
     }catch(e){}
   };
   if(tgApp()) checkStart();
